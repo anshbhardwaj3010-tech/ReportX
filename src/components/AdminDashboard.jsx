@@ -73,7 +73,7 @@ export const AdminDashboard = () => {
     }
     try {
       await reviewIssue(issue.id, decision, reason);
-      showToast(decision === 'genuine' ? 'Report verified as genuine.' : 'Report rejected and reporter notified.', 'success');
+      showToast(decision === 'genuine' ? 'Report verified as genuine.' : decision === 'rejected' ? 'Report rejected and reporter notified.' : 'Report reopened for human review.', 'success');
       await refreshDispatchData();
     } catch (error) {
       showToast(error.message, 'error');
@@ -154,18 +154,21 @@ export const AdminDashboard = () => {
             </div>
           )}
 
-          <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: '#fbbf24', margin: '1.25rem 0 0.6rem' }}>Reports awaiting genuineness review ({pendingReviews.length})</h4>
-          <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.65rem' }}>Check the description, reported location, category, and evidence before approving. Only genuine reports can be assigned or earn points.</p>
+          <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: '#fbbf24', margin: '1.25rem 0 0.6rem' }}>Reports needing genuineness review ({pendingReviews.length})</h4>
+          <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.65rem' }}>AI clears high-confidence reports and flags suspicious evidence. Review uncertain or flagged cases here; AI screening is not proof of authenticity.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1rem' }}>
             {pendingReviews.map((issue) => (
-              <div key={issue.id} style={{ display: 'grid', gridTemplateColumns: issue.beforeImageUrl ? 'minmax(0, 1fr) 110px' : '1fr', gap: '0.75rem', padding: '0.8rem', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '0.5rem' }}>
+              <div key={issue.id} style={{ display: 'grid', gridTemplateColumns: issue.beforeImageUrl || issue.videoUrl ? 'minmax(0, 1fr) minmax(110px, 180px)' : '1fr', gap: '0.75rem', padding: '0.8rem', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '0.5rem' }}>
                 <div style={{ minWidth: 0 }}>
                   <strong>#{issue.id} · {issue.title}</strong>
                   <p style={{ color: '#cbd5e1', fontSize: '0.8rem', marginTop: '0.25rem' }}>{issue.description}</p>
                   <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '0.25rem' }}>
                     {issue.location} · {issue.domain} · {CATEGORIES.find((category) => category.id === issue.category)?.name || issue.category} · Reported by {issue.reportedBy}
                   </p>
-                  {issue.beforeImageUrl && <a href={issue.beforeImageUrl} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', fontSize: '0.75rem' }}>Open submitted evidence</a>}
+                  {issue.aiAssessment && <p style={{ color: '#c7d2fe', fontSize: '0.8rem', marginTop: '0.45rem' }}>AI: {issue.aiAssessment.verdict} · {issue.aiAssessment.confidence}% confidence · {issue.aiAssessment.summary}</p>}
+                  {issue.beforeImageUrl && <a href={issue.beforeImageUrl} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', fontSize: '0.75rem', marginRight: '0.75rem' }}>Open photo evidence</a>}
+                  {issue.videoUrl && <a href={issue.videoUrl} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', fontSize: '0.75rem' }}>Open video evidence</a>}
+                  {issue.videoUrl && <video src={issue.videoUrl} controls playsInline aria-label={`Video evidence for ${issue.id}`} style={{ display: 'block', width: '100%', maxHeight: '180px', marginTop: '0.5rem', borderRadius: '0.4rem', background: '#020617' }} />}
                   <input
                     aria-label={`Rejection reason for ${issue.id}`}
                     value={rejectionReasons[issue.id] || ''}
@@ -178,7 +181,7 @@ export const AdminDashboard = () => {
                     <button className="btn-secondary" onClick={() => handleReview(issue, 'rejected')} style={{ padding: '0.5rem 0.75rem' }}>Reject report</button>
                   </div>
                 </div>
-                {issue.beforeImageUrl && <img src={issue.beforeImageUrl} alt="Submitted issue evidence" style={{ width: '110px', height: '100px', objectFit: 'cover', borderRadius: '0.4rem' }} />}
+                {issue.beforeImageUrl && <img src={issue.beforeImageUrl} alt="Submitted issue evidence" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '0.4rem' }} />}
               </div>
             ))}
             {pendingReviews.length === 0 && <p style={{ color: '#64748b', fontSize: '0.85rem' }}>No reports are waiting for review.</p>}
@@ -194,6 +197,7 @@ export const AdminDashboard = () => {
                     <strong>#{issue.id} · {issue.title}</strong>
                     <p style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{issue.location} · {issue.urgency} · {CATEGORIES.find((category) => category.id === issue.category)?.name || issue.category}</p>
                     {issue.assignedToUser && <span style={{ color: '#34d399', fontSize: '0.75rem' }}>Assigned to {issue.assignedTo}</span>}
+                    {issue.reviewSource === 'ai' && !issue.assignedToUser && <button className="btn-secondary" onClick={() => handleReview(issue, 'needs_review')} style={{ display: 'block', marginTop: '0.45rem', padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}>Reopen AI review</button>}
                   </div>
                   <select
                     value={selectedTechnicians[issue.id] || issue.assignedToUser || ''}

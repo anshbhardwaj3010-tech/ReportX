@@ -6,10 +6,15 @@ const API_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${
 const IssueContext = createContext();
 
 export const IssueProvider = ({ children }) => {
-  const [domain, setDomain] = useState('on-campus'); // 'on-campus' | 'off-campus'
+  const [domain, setDomain] = useState('off-campus'); // 'off-campus' (City Dashboard) | 'on-campus'
+  const [currentView, setCurrentView] = useState('overview'); // 'overview' | 'map' | 'reports' | 'work_orders' | 'alerts' | 'analytics' | 'team' | 'settings'
+  const [theme, setTheme] = useState(() => localStorage.getItem('fixly_theme') || 'light');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [cloudinaryStatus, setCloudinaryStatus] = useState({ enabled: false, cloudName: null });
+
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('reportx_token'));
   const [currentUser, setCurrentUser] = useState(null);
-  const role = currentUser?.role || 'student';
+  const role = currentUser?.role || 'admin'; // Default to admin for full operations dispatch preview if guest
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
@@ -24,6 +29,20 @@ export const IssueProvider = ({ children }) => {
   const [toastMessage, setToastMessage] = useState(null);
   const hasVerifiedEmailLink = useRef(false);
   const hasShownApiError = useRef(false);
+
+  // Sync theme with document element
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('fixly_theme', theme);
+  }, [theme]);
+
+  // Check Cloudinary status
+  useEffect(() => {
+    fetch(`${API_URL}/cloudinary/status`)
+      .then(res => res.json())
+      .then(data => setCloudinaryStatus(data))
+      .catch(() => {});
+  }, []);
   const showEffectToast = (message, type) => {
     const id = Date.now();
     setToastMessage({ message, type, id });
@@ -46,6 +65,7 @@ export const IssueProvider = ({ children }) => {
       const error = new Error(result.error || 'The request could not be completed.');
       error.status = response.status;
       error.duplicate = result.duplicate;
+      error.assessment = result.assessment;
       throw error;
     }
     return result;
@@ -171,7 +191,7 @@ export const IssueProvider = ({ children }) => {
   const uploadImage = async (file) => {
     if (!authToken) throw new Error('Sign in before uploading an image.');
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('media', file);
     const response = await fetch(`${API_URL}/uploads`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${authToken}` },
@@ -179,6 +199,9 @@ export const IssueProvider = ({ children }) => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Image upload failed.');
+    if (result.url && (result.url.startsWith('http://') || result.url.startsWith('https://'))) {
+      return result.url;
+    }
     const apiOrigin = API_URL.replace(/\/api\/?$/, '');
     return new URL(result.url, apiOrigin).toString();
   };
@@ -208,6 +231,9 @@ export const IssueProvider = ({ children }) => {
         return { duplicate: error.duplicate };
       }
       showToast(error.message, 'error');
+      if ([422, 503].includes(error.status)) {
+        return { screeningFailed: true, message: error.message, assessment: error.assessment };
+      }
       return null;
     }
   };
@@ -288,6 +314,10 @@ export const IssueProvider = ({ children }) => {
   return (
     <IssueContext.Provider value={{
       domain, setDomain,
+      currentView, setCurrentView,
+      theme, setTheme,
+      isSettingsOpen, setIsSettingsOpen,
+      cloudinaryStatus, setCloudinaryStatus,
       role,
       currentUser,
       isAuthModalOpen, setIsAuthModalOpen,

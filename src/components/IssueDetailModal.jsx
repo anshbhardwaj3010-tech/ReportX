@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { CATEGORIES } from '../data/mockData';
+import { getOptimizedImageUrl } from '../utils/cloudinary';
 import { 
   X, CheckCircle2, Clock, Wrench, Sparkles, User, MapPin, 
   Send, Star, ThumbsUp, ShieldCheck, ArrowRight, Camera 
@@ -21,7 +22,7 @@ export const IssueDetailModal = () => {
 
   const stages = [
     { key: 'reported', label: '1. Issue Reported', desc: 'Ticket logged with location & media' },
-    { key: 'acknowledged', label: '2. AI Verified & Queued', desc: 'Category verified & assigned' },
+    { key: 'acknowledged', label: selectedIssue.isGenuine === true ? '2. AI Verified' : selectedIssue.isGenuine === false ? '2. AI Flagged' : '2. AI Review Pending', desc: selectedIssue.isGenuine === true ? 'Ready for maintenance assignment' : selectedIssue.isGenuine === false ? 'Flagged for admin review' : 'Needs an evidence review' },
     { key: 'in_progress', label: '3. Work In Progress', desc: `Assigned: ${selectedIssue.assignedTo}` },
     { key: 'resolved', label: '4. Issue Resolved', desc: selectedIssue.resolvedAt || 'Verified repair completed' }
   ];
@@ -120,7 +121,7 @@ export const IssueDetailModal = () => {
         {/* Description & Media Proof Section */}
         <div style={{ marginBottom: '1.5rem' }}>
           <h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-            Issue Description & Photo Evidence
+            Issue Description & Evidence
           </h4>
           <p style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '1rem' }}>{selectedIssue.description}</p>
 
@@ -131,7 +132,7 @@ export const IssueDetailModal = () => {
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f87171', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.3rem' }}>
                   <Camera size={14} /> Before Repair Photo
                 </span>
-                <img src={selectedIssue.beforeImageUrl} alt="Before repair" style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '0.5rem', border: '1px solid rgba(255, 255, 255, 0.1)' }} />
+                <img src={getOptimizedImageUrl(selectedIssue.beforeImageUrl, { width: 800 })} alt="Before repair" style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '0.5rem', border: '1px solid rgba(255, 255, 255, 0.1)' }} />
               </div>
             )}
             {selectedIssue.afterImageUrl && (
@@ -139,11 +140,22 @@ export const IssueDetailModal = () => {
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.3rem' }}>
                   <ShieldCheck size={14} /> After Repair Resolution Proof
                 </span>
-                <img src={selectedIssue.afterImageUrl} alt="After repair proof" style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '0.5rem', border: '1px solid rgba(16, 185, 129, 0.3)' }} />
+                <img src={getOptimizedImageUrl(selectedIssue.afterImageUrl, { width: 800 })} alt="After repair proof" style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '0.5rem', border: '1px solid rgba(16, 185, 129, 0.3)' }} />
               </div>
             )}
           </div>
+          {selectedIssue.videoUrl && (
+            <video src={selectedIssue.videoUrl} controls playsInline aria-label="Submitted issue video evidence" style={{ display: 'block', width: '100%', maxHeight: '320px', marginTop: '1rem', borderRadius: '0.5rem', background: '#020617' }} />
+          )}
         </div>
+
+        {selectedIssue.aiAssessment && (
+          <section aria-label="AI evidence screening result" style={{ marginBottom: '1.5rem', padding: '0.85rem 1rem', border: '1px solid rgba(129,140,248,0.3)', borderRadius: '0.5rem', background: 'rgba(99,102,241,0.08)' }}>
+            <strong style={{ color: '#c7d2fe', fontSize: '0.85rem' }}>AI evidence screening</strong>
+            <p style={{ color: '#cbd5e1', fontSize: '0.85rem', marginTop: '0.3rem' }}>{selectedIssue.aiAssessment.summary}</p>
+            {selectedIssue.aiAssessment.confidence > 0 && <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '0.25rem' }}>{selectedIssue.aiAssessment.confidence}% model confidence. Screening is an estimate, not proof of authenticity.</p>}
+          </section>
+        )}
 
         {/* Student Verification & Rating (If Resolved and not verified yet) */}
         {selectedIssue.status === 'resolved' && !selectedIssue.studentVerified && (

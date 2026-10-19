@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
@@ -8,41 +9,75 @@ import express from 'express';
 import mongoose from 'mongoose';
 import multer from 'multer';
 import nodemailer from 'nodemailer';
+import { v2 as cloudinary } from 'cloudinary';
 
 dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
+
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+  });
+  console.log(`Cloudinary CDN configured for cloud: ${process.env.CLOUDINARY_CLOUD_NAME}`);
+}
+
+const isCloudinaryActive = () => Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
 const clientOrigins = (process.env.CLIENT_URL || 'http://localhost:5173').split(',').map((origin) => origin.trim());
+const isLocalDevelopmentOrigin = (origin) => {
+  try {
+    const url = new URL(origin);
+    const octets = url.hostname.split('.').map(Number);
+    const [first, second] = octets;
+    const isPrivateIpv4 = octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)
+      && (first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168));
+    return url.protocol === 'http:' && url.port === '5173'
+      && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || isPrivateIpv4);
+  } catch {
+    return false;
+  }
+};
 const defaultClientOrigin = clientOrigins[0];
 const publicAppUrl = process.env.PUBLIC_APP_URL || defaultClientOrigin;
 const maintenanceEmail = process.env.MAINTENANCE_EMAIL;
 const adminEmails = new Set((process.env.ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
 const tokenSecret = process.env.JWT_SECRET;
+const aiModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const scrypt = promisify(crypto.scrypt);
 const uploadsDirectory = fileURLToPath(new URL('./uploads/', import.meta.url));
-const imageExtensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+const mediaExtensions = {
+  'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
+  'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov'
+};
 
 fs.mkdirSync(uploadsDirectory, { recursive: true });
 
 app.use(cors({
   origin(origin, callback) {
-    callback(null, !origin || clientOrigins.includes(origin));
+    callback(null, !origin || clientOrigins.includes(origin) || isLocalDevelopmentOrigin(origin));
   }
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', express.static(uploadsDirectory));
 
-const imageUpload = multer({
+const mediaUpload = multer({
   storage: multer.diskStorage({
     destination: uploadsDirectory,
     filename(_req, file, callback) {
-      callback(null, `${crypto.randomUUID()}${imageExtensions[file.mimetype]}`);
+      callback(null, `${crypto.randomUUID()}${mediaExtensions[file.mimetype]}`);
     }
   }),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
   fileFilter(_req, file, callback) {
-    if (!imageExtensions[file.mimetype]) return callback(new Error('Use a JPEG, PNG, or WebP image.'));
+    if (!mediaExtensions[file.mimetype]) return callback(new Error('Use a JPEG, PNG, WebP, MP4, WebM, or MOV file.'));
     callback(null, true);
   }
 });
@@ -92,6 +127,18 @@ const issueSchema = new mongoose.Schema({
   imageUrl: String,
   beforeImageUrl: String,
   afterImageUrl: String,
+  videoUrl: String,
+  evidenceHashes: { type: [String], default: [] },
+  aiAssessment: {
+    verdict: { type: String, enum: ['genuine', 'suspicious', 'uncertain', 'unavailable'] },
+    confidence: Number,
+    summary: String,
+    matchesDescription: Boolean,
+    flags: { type: [String], default: [] },
+    provider: String,
+    checkedAt: Date
+  },
+  reviewSource: { type: String, enum: ['ai', 'admin'], default: null },
   resolutionNotes: String,
   studentVerified: { type: Boolean, default: false },
   rating: Number,
@@ -155,6 +202,15 @@ const publicIssue = (issue) => ({
   imageUrl: issue.imageUrl || issue.beforeImageUrl || null,
   beforeImageUrl: issue.beforeImageUrl || issue.imageUrl || null,
   afterImageUrl: issue.afterImageUrl || null,
+  videoUrl: issue.videoUrl || null,
+  aiAssessment: issue.aiAssessment?.verdict ? {
+    verdict: issue.aiAssessment.verdict,
+    confidence: issue.aiAssessment.confidence,
+    summary: issue.aiAssessment.summary,
+    provider: issue.aiAssessment.provider,
+    checkedAt: issue.aiAssessment.checkedAt
+  } : null,
+  reviewSource: issue.reviewSource || null,
   resolutionNotes: issue.resolutionNotes || null,
   studentVerified: issue.studentVerified,
   rating: issue.rating || null,
@@ -169,6 +225,95 @@ const publicIssue = (issue) => ({
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[character]));
+
+const isCloudinaryUrl = (url) => typeof url === 'string' && url.includes('cloudinary.com');
+
+const getUploadedMediaPath = (mediaUrl, expectedType) => {
+  if (!mediaUrl) return null;
+  try {
+    const filename = path.basename(new URL(mediaUrl, 'http://localhost').pathname);
+    if (!/^[a-f0-9-]{36}\.(jpg|png|webp|mp4|webm|mov)$/i.test(filename)) return null;
+    const extension = path.extname(filename).toLowerCase();
+    const mimeType = Object.entries(mediaExtensions).find(([, value]) => value === extension)?.[0];
+    const filePath = path.join(uploadsDirectory, filename);
+    if (!mimeType || !mimeType.startsWith(`${expectedType}/`) || !fs.existsSync(filePath)) return null;
+    return { filePath, mimeType };
+  } catch {
+    return null;
+  }
+};
+
+const readEvidencePart = async (mediaUrl, expectedType) => {
+  if (!mediaUrl) return null;
+  if (isCloudinaryUrl(mediaUrl)) {
+    try {
+      const isVideo = expectedType === 'video';
+      const res = await fetch(mediaUrl, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) return null;
+      const mimeType = res.headers.get('content-type') || (isVideo ? 'video/mp4' : 'image/jpeg');
+      const arrayBuffer = await res.arrayBuffer();
+      return { inlineData: { mimeType, data: Buffer.from(arrayBuffer).toString('base64') } };
+    } catch {
+      return null;
+    }
+  }
+  const media = getUploadedMediaPath(mediaUrl, expectedType);
+  return media ? { inlineData: { mimeType: media.mimeType, data: fs.readFileSync(media.filePath).toString('base64') } } : null;
+};
+
+const isUploadedVideo = (mediaUrl) => {
+  if (isCloudinaryUrl(mediaUrl)) {
+    return mediaUrl.includes('/video/') || /\.(mp4|webm|mov)(\?.*)?$/i.test(mediaUrl);
+  }
+  return Boolean(getUploadedMediaPath(mediaUrl, 'video'));
+};
+
+const assessIssueEvidence = async ({ title, description, category, domain, location, imageUrl, videoUrl }) => {
+  const checkedAt = new Date();
+  if (!process.env.GEMINI_API_KEY) {
+    return { verdict: 'unavailable', confidence: 0, summary: 'AI screening is unavailable. Configure the Gemini API key before submitting reports.', provider: 'none', checkedAt };
+  }
+
+  const evidenceParts = await Promise.all([
+    readEvidencePart(videoUrl, 'video'),
+    readEvidencePart(imageUrl, 'image')
+  ]);
+  const evidence = evidenceParts.filter(Boolean);
+  if (!evidence.length) {
+    return { verdict: 'uncertain', confidence: 0, summary: 'The uploaded video could not be read. Try exporting it as MP4, WebM, or MOV.', provider: 'Gemini', checkedAt };
+  }
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(aiModel)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+      signal: AbortSignal.timeout(90000),
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: `Screen this maintenance report before it is accepted. Report: title=${title}; description=${description}; category=${category}; domain=${domain}; location=${location}. The first attachment is the required video; the optional photo follows it. Decide whether the video itself clearly shows the described real-world maintenance problem at the reported location. Look for unrelated or stock-looking footage, visible watermarks or social-media/download UI, screenshots, obvious AI-generated/rendered content, edits that hide context, and mismatch between video and optional photo/report. Do not claim to know a file's internet origin unless the evidence visibly supports it. Missing context or uncertainty must never be called genuine. Return only JSON: verdict (genuine, suspicious, uncertain), confidence (integer 0-100), matchesDescription (boolean), flags (array chosen from ai_generated, stock_or_downloaded, screenshot_or_watermark, unrelated_evidence, no_issue_visible, inconsistent_evidence), summary (one short sentence citing visible evidence). Use genuine only when the problem is clearly visible in the video and evidence is consistent. Use suspicious when a listed red flag is clearly visible; otherwise use uncertain. Do not infer a person's intent.` },
+            ...evidence
+          ]
+        }],
+        generationConfig: { responseMimeType: 'application/json' }
+      })
+    });
+    if (!response.ok) throw new Error('AI provider request failed');
+    const payload = await response.json();
+    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
+    const result = JSON.parse(text || '{}');
+    const verdict = ['genuine', 'suspicious', 'uncertain'].includes(result.verdict) ? result.verdict : 'uncertain';
+    const confidence = Math.max(0, Math.min(100, Math.round(Number(result.confidence) || 0)));
+    const summary = String(result.summary || 'The AI could not provide a reliable evidence assessment.').slice(0, 300);
+    const matchesDescription = result.matchesDescription === true;
+    const allowedFlags = ['ai_generated', 'stock_or_downloaded', 'screenshot_or_watermark', 'unrelated_evidence', 'no_issue_visible', 'inconsistent_evidence'];
+    const flags = Array.isArray(result.flags) ? result.flags.filter((flag) => allowedFlags.includes(flag)) : [];
+    return { verdict, confidence, summary, matchesDescription, flags, provider: 'Gemini', checkedAt };
+  } catch (error) {
+    console.warn('AI evidence screening unavailable:', error.message);
+    return { verdict: 'unavailable', confidence: 0, summary: 'AI screening could not complete; this report needs manual review.', provider: 'Gemini', checkedAt };
+  }
+};
 
 const sendEmail = async ({ to, subject, html }) => {
   if (!transporter) throw new Error('Email is not configured. Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS.');
@@ -221,8 +366,8 @@ const sendReviewDecisionEmail = (issue) => sendEmail({
   to: issue.reportedByEmail,
   subject: issue.isGenuine ? `Issue verified: ${issue.ticketId}` : `Report review update: ${issue.ticketId}`,
   html: issue.isGenuine
-    ? `<p>Your report <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong> was verified by the maintenance office and can now be assigned.</p>`
-    : `<p>Your report <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong> was not verified as a genuine maintenance issue.</p><p>Reason: ${escapeHtml(issue.rejectionReason || 'Please contact the maintenance office for details.')}</p>`
+    ? `<p>Your report <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong> was verified by ${issue.reviewSource === 'ai' ? 'AI evidence screening' : 'the maintenance office'} and can now be assigned.</p>`
+    : `<p>Your report <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong> was flagged by ${issue.reviewSource === 'ai' ? 'AI evidence screening' : 'the maintenance office'} as not verified.</p><p>Reason: ${escapeHtml(issue.rejectionReason || 'Please contact the maintenance office for details.')}</p>`
 });
 
 const sendAssignmentEmail = async (issue, technician) => {
@@ -311,10 +456,52 @@ const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req,
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 }));
 
-app.post('/api/uploads', requireAuth, imageUpload.single('image'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Choose an image to upload.' });
-  res.status(201).json({ url: `/uploads/${req.file.filename}` });
+app.get('/api/cloudinary/status', (_req, res) => {
+  res.json({
+    enabled: isCloudinaryActive(),
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME ? `${process.env.CLOUDINARY_CLOUD_NAME.slice(0, 3)}***` : null
+  });
 });
+
+app.post('/api/uploads', requireAuth, mediaUpload.single('media'), asyncRoute(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose a photo or video to upload.' });
+  const isVideo = req.file.mimetype.startsWith('video/');
+  const maxSize = isVideo ? 12 * 1024 * 1024 : 8 * 1024 * 1024;
+  if (req.file.size > maxSize) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(413).json({ error: isVideo ? 'Video must be 12 MB or smaller.' : 'Photo must be 8 MB or smaller.' });
+  }
+
+  // Upload to Cloudinary if configured
+  if (isCloudinaryActive()) {
+    try {
+      const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+        resource_type: isVideo ? 'video' : 'image',
+        folder: 'reportx_issues',
+        quality: 'auto',
+        fetch_format: 'auto'
+      });
+      return res.status(201).json({
+        url: uploadResult.secure_url,
+        type: req.file.mimetype,
+        provider: 'cloudinary',
+        publicId: uploadResult.public_id,
+        format: uploadResult.format,
+        width: uploadResult.width,
+        height: uploadResult.height
+      });
+    } catch (cldError) {
+      console.warn('Cloudinary upload error, using local file storage:', cldError.message);
+    }
+  }
+
+  // Fallback to fast local uploads
+  res.status(201).json({
+    url: `/uploads/${req.file.filename}`,
+    type: req.file.mimetype,
+    provider: 'local'
+  });
+}));
 
 app.get('/api/admin/staff-applications', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   const applicants = await User.find({ role: 'technician', staffApproved: false, emailVerified: true }).sort({ createdAt: 1 });
@@ -327,7 +514,10 @@ app.get('/api/admin/technicians', requireAuth, requireAdmin, asyncRoute(async (_
 }));
 
 app.get('/api/admin/issues/pending-review', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  const issues = await Issue.find({ isGenuine: null, status: 'reported' }).sort({ createdAt: 1 });
+  const issues = await Issue.find({
+    status: 'reported',
+    $or: [{ isGenuine: null }, { reviewSource: 'ai', isGenuine: false }]
+  }).sort({ createdAt: 1 });
   res.json(issues.map(publicIssue));
 }));
 
@@ -464,10 +654,16 @@ app.get('/api/issues', optionalAuth, asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
-  const { title, description, category, domain, location, urgency, imageUrl } = req.body;
+  const { title, description, category, domain, location, urgency, imageUrl, videoUrl } = req.body;
   const required = [title, description, category, domain, location, urgency];
   if (!required.every((value) => typeof value === 'string' && value.trim())) {
     return res.status(400).json({ error: 'Complete all required issue fields.' });
+  }
+  if (typeof videoUrl !== 'string' || !isUploadedVideo(videoUrl)) {
+    return res.status(400).json({ error: 'Upload a video of the issue before submitting the report.' });
+  }
+  if (imageUrl && !isCloudinaryUrl(imageUrl) && !getUploadedMediaPath(imageUrl, 'image')) {
+    return res.status(400).json({ error: 'The photo evidence is invalid. Upload the photo again.' });
   }
   const duplicate = await Issue.findOne({
     domain,
@@ -482,10 +678,43 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
       duplicate: publicIssue(duplicate)
     });
   }
+  let videoHash;
+  if (isCloudinaryUrl(videoUrl)) {
+    videoHash = crypto.createHash('sha256').update(videoUrl).digest('hex');
+  } else {
+    const videoMedia = getUploadedMediaPath(videoUrl, 'video');
+    if (!videoMedia || !fs.existsSync(videoMedia.filePath)) {
+      return res.status(400).json({ error: 'The video evidence could not be found. Upload the video again.' });
+    }
+    videoHash = crypto.createHash('sha256').update(fs.readFileSync(videoMedia.filePath)).digest('hex');
+  }
+  const reusedVideo = await Issue.findOne({ evidenceHashes: videoHash });
+  if (reusedVideo) {
+    return res.status(409).json({ error: 'This exact video was already used on another report. Record a new video showing the current issue.' });
+  }
+  const aiAssessment = await assessIssueEvidence({ title, description, category, domain, location, imageUrl, videoUrl });
+  const aiVerified = aiAssessment.verdict === 'genuine'
+    && aiAssessment.matchesDescription
+    && aiAssessment.flags.length === 0
+    && aiAssessment.confidence >= 90;
+  if (!aiVerified) {
+    const status = aiAssessment.verdict === 'unavailable' ? 503 : 422;
+    return res.status(status).json({
+      error: aiAssessment.verdict === 'unavailable'
+        ? 'AI screening is unavailable, so this report was not submitted.'
+        : 'AI could not verify this evidence. Add a clear, original video showing the issue and submit again.',
+      assessment: aiAssessment
+    });
+  }
   const issue = await Issue.create({
     ticketId: `REP-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
-    title, description, category, domain, location, urgency, imageUrl,
+    title, description, category, domain, location, urgency, imageUrl, videoUrl,
     beforeImageUrl: imageUrl,
+    aiAssessment,
+    evidenceHashes: [videoHash],
+    isGenuine: true,
+    reviewSource: 'ai',
+    reviewedAt: aiAssessment.checkedAt,
     reportedByUser: req.user._id,
     reportedByEmail: req.user.email,
     reportedByName: req.user.name,
@@ -495,35 +724,60 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
       text: 'Issue reported',
       timestamp: new Date(),
       type: 'system'
+    }, {
+      id: crypto.randomUUID(),
+      text: `AI screening verified this report (${aiAssessment.confidence}% confidence): ${aiAssessment.summary}`,
+      timestamp: aiAssessment.checkedAt,
+      type: 'ai-review'
     }]
   });
   emailTask(sendIssueReceipt(issue));
+  emailTask(sendReviewDecisionEmail(issue));
   res.status(201).json({ issue: publicIssue(issue) });
 }));
 
 app.put('/api/issues/:ticketId/review', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
   const { decision, reason } = req.body;
-  if (!['genuine', 'rejected'].includes(decision)) {
+  if (!['genuine', 'rejected', 'needs_review'].includes(decision)) {
     return res.status(400).json({ error: 'Choose whether this report is genuine or rejected.' });
   }
   if (decision === 'rejected' && !String(reason || '').trim()) {
     return res.status(400).json({ error: 'Provide a reason when rejecting a report.' });
   }
 
-  const issue = await Issue.findOne({ ticketId: req.params.ticketId, status: 'reported', isGenuine: null });
-  if (!issue) return res.status(409).json({ error: 'This report has already been reviewed or is no longer awaiting review.' });
-  issue.isGenuine = decision === 'genuine';
-  issue.rejectionReason = decision === 'rejected' ? String(reason).trim().slice(0, 500) : null;
-  issue.reviewedBy = req.user._id;
-  issue.reviewedAt = new Date();
+  const issue = await Issue.findOne({ ticketId: req.params.ticketId, status: 'reported' });
+  if (!issue) return res.status(409).json({ error: 'This report is no longer available for review.' });
+  if (decision === 'needs_review') {
+    if (issue.reviewSource !== 'ai' || issue.isGenuine !== true || issue.assignedToUser) {
+      return res.status(409).json({ error: 'Only unassigned AI-approved reports can be reopened for review.' });
+    }
+    issue.isGenuine = null;
+    issue.rejectionReason = null;
+    issue.reviewSource = null;
+    issue.reviewedBy = null;
+    issue.reviewedAt = null;
+  } else {
+    if (issue.isGenuine !== null && !(issue.reviewSource === 'ai' && issue.isGenuine === false)) {
+      return res.status(409).json({ error: 'This report has already been reviewed.' });
+    }
+    issue.isGenuine = decision === 'genuine';
+    issue.rejectionReason = decision === 'rejected' ? String(reason).trim().slice(0, 500) : null;
+    issue.reviewSource = 'admin';
+    issue.reviewedBy = req.user._id;
+    issue.reviewedAt = new Date();
+  }
   issue.activityLog.push({
     id: crypto.randomUUID(),
-    text: decision === 'genuine' ? 'Maintenance office verified this as a genuine issue.' : `Maintenance office rejected this report: ${issue.rejectionReason}`,
-    timestamp: issue.reviewedAt,
+    text: decision === 'needs_review'
+      ? 'Admin reopened the AI-approved report for human review.'
+      : decision === 'genuine'
+        ? 'Maintenance office verified this as a genuine issue.'
+        : `Maintenance office rejected this report: ${issue.rejectionReason}`,
+    timestamp: new Date(),
     type: 'review'
   });
   await issue.save();
-  emailTask(sendReviewDecisionEmail(issue));
+  if (decision !== 'needs_review') emailTask(sendReviewDecisionEmail(issue));
   res.json({ issue: publicIssue(issue) });
 }));
 
@@ -656,9 +910,9 @@ app.post('/api/issues/:ticketId/rating', requireAuth, asyncRoute(async (req, res
 app.use((error, _req, res, _next) => {
   console.error(error);
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'Image must be 8 MB or smaller.' });
+    return res.status(413).json({ error: 'Video must be 12 MB or smaller.' });
   }
-  if (error.message === 'Use a JPEG, PNG, or WebP image.') {
+  if (error.message === 'Use a JPEG, PNG, WebP, MP4, WebM, or MOV file.') {
     return res.status(400).json({ error: error.message });
   }
   res.status(500).json({ error: 'The server could not complete the request.' });

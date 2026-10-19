@@ -17,10 +17,12 @@ export const QuickReportModal = () => {
   const [location, setLocation] = useState(domain === 'on-campus' ? ON_CAMPUS_LOCATIONS[0] : OFF_CAMPUS_LOCATIONS[0]);
   const [urgency, setUrgency] = useState('medium');
   const [imageUrl, setImageUrl] = useState('');
-  const [isImageUploading, setIsImageUploading] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
   const [aiConfidence, setAiConfidence] = useState(null);
   const [aiMessage, setAiMessage] = useState(null);
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [screeningError, setScreeningError] = useState(null);
 
   if (!isReportModalOpen) return null;
 
@@ -33,7 +35,7 @@ export const QuickReportModal = () => {
     setUrgency(result.urgency);
     if (!title && result.title) setTitle(result.title);
     setAiConfidence(result.confidence);
-    setAiMessage(`AI Vision classified: ${result.categoryName} (${result.confidence}% confidence)`);
+    setAiMessage(`Suggested category: ${result.categoryName}`);
 
     // Check duplicate warning
     checkDuplicate(location, result.category);
@@ -53,7 +55,8 @@ export const QuickReportModal = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title || !description || duplicateWarning || isImageUploading) return;
+    if (!title || !description || !videoUrl || duplicateWarning || isEvidenceUploading) return;
+    setScreeningError(null);
 
     const result = await addIssue({
       title,
@@ -63,8 +66,13 @@ export const QuickReportModal = () => {
       location,
       urgency,
       imageUrl,
+      videoUrl,
       aiConfidence
     });
+    if (result?.screeningFailed) {
+      setScreeningError(result);
+      return;
+    }
     if (result?.duplicate) {
       setDuplicateWarning(result.duplicate);
       return;
@@ -74,6 +82,7 @@ export const QuickReportModal = () => {
     setTitle('');
     setDescription('');
     setImageUrl('');
+    setVideoUrl('');
     setAiMessage(null);
     setDuplicateWarning(null);
   };
@@ -87,7 +96,7 @@ export const QuickReportModal = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.4rem', fontWeight: 800 }}>Report Campus or Household Issue</h2>
             </div>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Fill in the issue details and optionally add a photo.</p>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>A video of the issue is required to submit this report. You can also attach a photo.</p>
           </div>
           <button 
             onClick={() => setIsReportModalOpen(false)}
@@ -137,7 +146,17 @@ export const QuickReportModal = () => {
             </div>
           </div>
 
-          <PhotoUpload label="ISSUE PHOTO (OPTIONAL)" value={imageUrl} onChange={setImageUrl} onUploadingChange={setIsImageUploading} />
+          <PhotoUpload label="ISSUE PHOTO (OPTIONAL)" value={imageUrl} onChange={(value) => { setImageUrl(value); setScreeningError(null); }} onUploadingChange={setIsEvidenceUploading} />
+          <PhotoUpload label="ISSUE VIDEO (REQUIRED)" value={videoUrl} onChange={(value) => { setVideoUrl(value); setScreeningError(null); }} onUploadingChange={setIsEvidenceUploading} allowVideo videoOnly />
+
+          {screeningError && (
+            <div role="alert" style={{ padding: '0.85rem', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '0.5rem', background: 'rgba(127,29,29,0.18)' }}>
+              <strong style={{ color: '#fca5a5', fontSize: '0.85rem' }}>Report not submitted</strong>
+              <p style={{ color: '#fecaca', fontSize: '0.8rem', marginTop: '0.25rem' }}>{screeningError.message}</p>
+              {screeningError.assessment?.summary && <p style={{ color: '#cbd5e1', fontSize: '0.8rem', marginTop: '0.35rem' }}>AI finding: {screeningError.assessment.summary}</p>}
+              {screeningError.assessment?.flags?.length > 0 && <p style={{ color: '#fca5a5', fontSize: '0.75rem', marginTop: '0.25rem' }}>Flags: {screeningError.assessment.flags.map((flag) => flag.replaceAll('_', ' ')).join(', ')}</p>}
+            </div>
+          )}
 
           {/* AI Banner Message */}
           {aiMessage && (
@@ -157,7 +176,7 @@ export const QuickReportModal = () => {
                 style={{ background: 'transparent', border: 'none', color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
               >
                 <Sparkles size={13} />
-                <span>AI Auto-Detect Category</span>
+                <span>Suggest category</span>
               </button>
             </div>
             <input 
@@ -325,9 +344,9 @@ export const QuickReportModal = () => {
             <button type="button" className="btn-secondary" onClick={() => setIsReportModalOpen(false)}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={isImageUploading || Boolean(duplicateWarning)}>
+            <button type="submit" className="btn-primary" disabled={isEvidenceUploading || !videoUrl || Boolean(duplicateWarning)}>
               <Zap size={18} />
-              <span>Submit Issue</span>
+              <span>AI Check & Submit</span>
             </button>
           </div>
         </form>

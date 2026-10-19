@@ -37,9 +37,9 @@ export const IssueCard = ({ issue }) => {
             <span className={`badge-tag ${statusClass}`}>
               {statusLabel}
             </span>
-            {issue.isGenuine === null && <span className="badge-tag" style={{ color: '#fbbf24', background: 'rgba(245,158,11,0.12)' }}>Pending office review</span>}
+            {issue.isGenuine === null && <span className="badge-tag" style={{ color: '#fbbf24', background: 'rgba(245,158,11,0.12)' }}>Needs review</span>}
             {issue.isGenuine === true && <span className="badge-tag" style={{ color: '#34d399', background: 'rgba(16,185,129,0.12)' }}>Verified genuine</span>}
-            {issue.isGenuine === false && <span className="badge-tag" style={{ color: '#f87171', background: 'rgba(239,68,68,0.12)' }}>Not verified</span>}
+            {issue.isGenuine === false && <span className="badge-tag" style={{ color: '#f87171', background: 'rgba(239,68,68,0.12)' }}>{issue.reviewSource === 'ai' ? 'AI flagged for review' : 'Not verified'}</span>}
             {issue.urgency === 'emergency' && (
               <span className="badge-tag status-escalated" style={{ fontSize: '0.7rem' }}>
                 <AlertOctagon size={12} /> Emergency

@@ -17,6 +17,8 @@ Copy `server/.env.example` to `server/.env`, then set:
 
 - `MONGO_URI`: the Atlas connection string
 - `JWT_SECRET`: a private random value; generate one with `node --input-type=module -e "import crypto from 'node:crypto'; console.log(crypto.randomBytes(32).toString('hex'))"`
+- `GEMINI_API_KEY`: a Google AI Studio API key for photo/video evidence screening; keep it only in `server/.env`
+- `GEMINI_MODEL`: optional model override; defaults to `gemini-3.6-flash`
 - `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, and `EMAIL_PASS`: your SMTP settings
 - `EMAIL_FROM`: the sender name/address allowed by the SMTP account
 - `MAINTENANCE_EMAIL`: the real maintenance-office mailbox; new issue reports and verified staff applications are sent there
@@ -47,7 +49,9 @@ Open the Vite URL printed by the second command. The API listens on port 5000. I
 3. Set `PUBLIC_APP_URL` to that same phone-facing address, for example `PUBLIC_APP_URL=http://192.168.1.25:5173`. Verification links always use this canonical URL, regardless of whether signup was started from localhost or the phone-facing address.
 4. Restart the API. Start Vite with `npm run dev -- --host 0.0.0.0` so it accepts connections from the local network.
 5. On both the PC and phone, open `http://192.168.1.25:5173`, using the same actual computer address. If Windows Firewall asks, allow Node.js on your private network.
-6. In the report or repair form, tap **Take photo** to open the rear camera, or **Choose photo** to select an existing image. JPEG, PNG, and WebP images up to 8 MB are accepted.
+6. Every report must include a video (MP4, WebM, or MOV up to 12 MB); a photo (JPEG, PNG, or WebP up to 8 MB) is optional. The AI sends the report description and attached evidence to Google's Gemini API for screening. Do not upload private or sensitive footage without permission.
+
+AI screening is a triage aid, not a forensic authenticity detector. Only a video that Gemini judges to clearly match the issue with at least 90% confidence and no risk flags is accepted; suspicious, uncertain, unavailable, and low-confidence results are not saved as reports. Users are asked to provide clearer, original evidence and retry. Exact re-uploads of a video already used on another report are blocked. Visual screening cannot prove that a file came from Google or another website; reliable source attribution requires reverse-image/video search. Admins can reopen unassigned AI-approved reports for review.
 
 Uploaded images are kept on the API host in `server/uploads`; issue records in MongoDB store their image paths. This is suitable for local development. For deployment, use persistent disk storage or move the uploads to object storage such as Cloudinary or S3, because many hosting platforms erase local files when a service restarts.
 
@@ -58,6 +62,6 @@ Uploaded images are kept on the API host in `server/uploads`; issue records in M
 3. Set `ADMIN_EMAILS` to the verified account email(s) of the maintenance-office admins, restart the API, then sign out and back in. The API promotes only those verified allowlisted accounts to admin; public signup cannot select the admin role. The **Office dashboard** navigation button appears only for admins.
 4. Each new report is emailed to the reporter and `MAINTENANCE_EMAIL`. The maintenance office assigns it to an approved employee in the matching department (or general maintenance). Assignment emails go to the employee and reporter.
 5. Employees see and update only their assigned tickets. Status changes notify the reporter and assigned employee.
-6. New reports remain pending until an admin checks the details/location/evidence and marks them genuine. Rejected reports require a reason and cannot be assigned. The reporter earns 50 stored reward points once the genuine report is fully resolved; duplicate completion requests do not award points again.
+6. AI screens new report evidence before accepting it. Uncertain or suspicious evidence is rejected at submission; admins can reopen unassigned AI-approved reports for review. Rejected reports require a reason and cannot be assigned. The reporter earns 50 stored reward points once the genuine report is fully resolved; duplicate completion requests do not award points again.
 
 The verification link expires after 24 hours. Passwords are stored as scrypt hashes, and API sessions are signed and expire after seven days.
