@@ -107,6 +107,8 @@ const issueSchema = new mongoose.Schema({
   category: { type: String, required: true },
   domain: { type: String, enum: ['on-campus', 'off-campus'], required: true },
   location: { type: String, required: true },
+  latitude: { type: Number, default: null },
+  longitude: { type: Number, default: null },
   urgency: { type: String, required: true },
   status: { type: String, enum: ['reported', 'in_progress', 'resolved'], default: 'reported' },
   reportedByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -186,6 +188,9 @@ const publicIssue = (issue) => ({
   category: issue.category,
   domain: issue.domain,
   location: issue.location,
+  latitude: issue.latitude ?? null,
+  longitude: issue.longitude ?? null,
+  coords: (issue.latitude != null && issue.longitude != null) ? [issue.latitude, issue.longitude] : null,
   urgency: issue.urgency,
   status: issue.status,
   isGenuine: issue.isGenuine ?? null,
@@ -654,7 +659,7 @@ app.get('/api/issues', optionalAuth, asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
-  const { title, description, category, domain, location, urgency, imageUrl, videoUrl } = req.body;
+  const { title, description, category, domain, location, urgency, imageUrl, videoUrl, latitude, longitude, coords } = req.body;
   const required = [title, description, category, domain, location, urgency];
   if (!required.every((value) => typeof value === 'string' && value.trim())) {
     return res.status(400).json({ error: 'Complete all required issue fields.' });
@@ -709,6 +714,8 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
   const issue = await Issue.create({
     ticketId: `REP-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
     title, description, category, domain, location, urgency, imageUrl, videoUrl,
+    latitude: latitude ?? (Array.isArray(coords) ? coords[0] : null),
+    longitude: longitude ?? (Array.isArray(coords) ? coords[1] : null),
     beforeImageUrl: imageUrl,
     aiAssessment,
     evidenceHashes: [videoHash],

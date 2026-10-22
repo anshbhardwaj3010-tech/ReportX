@@ -4,7 +4,7 @@ import { useIssues } from '../context/IssueContext';
 import { CITY_COORDINATES, getLocationCoordinates } from '../data/mockData';
 import { Plus, Minus, Crosshair } from 'lucide-react';
 
-const createCustomPinIcon = (color, label = '') => {
+const createCustomPinIcon = (color) => {
   return L.divIcon({
     className: 'custom-map-pin',
     html: `
@@ -42,70 +42,86 @@ export const LiveMapWidget = ({ onExpandMap }) => {
   const { issues, domain, setSelectedIssue, setCurrentView } = useIssues();
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const markersLayerRef = useRef(null);
 
   // Markers colors based on status and assignment
-  // Open: Red (#ef4444)
-  // In progress: Orange (#f97316)
-  // Unassigned: Purple (#8b5cf6)
-  // Resolved: Green (#10b981)
   const pinOpen = createCustomPinIcon('#ef4444');
   const pinProgress = createCustomPinIcon('#f97316');
   const pinUnassigned = createCustomPinIcon('#8b5cf6');
   const pinResolved = createCustomPinIcon('#10b981');
 
-  // Compute points from issues and default demo coordinates
-  const relevantIssues = issues.filter(i => !domain || i.domain === domain || domain === 'off-campus');
+  // Filter issues for current domain
+  const relevantIssues = issues.filter(i => !domain || i.domain === domain);
 
-  // Default points matching the screenshot map
-  const demoPoints = [
-    { id: 'm1', title: 'Pothole on 4th & Main', status: 'reported', assigned: true, coords: [38.7652, -9.1120] },
-    { id: 'm2', title: 'Broken streetlight — Elm St', status: 'reported', assigned: false, coords: [38.7573, -9.1145] },
-    { id: 'm3', title: 'Graffiti on wall — Park Ave', status: 'in_progress', assigned: true, coords: [38.7565, -9.1090] },
-    { id: 'm4', title: 'Overflowing bin — Market St', status: 'resolved', assigned: true, coords: [38.7619, -9.1081] },
-    { id: 'm5', title: 'Downtown Traffic Light', status: 'resolved', assigned: true, coords: [38.7615, -9.1110] },
-    { id: 'm6', title: 'Riverview Water Pipe', status: 'reported', assigned: false, coords: [38.7670, -9.1170] },
-    { id: 'm7', title: 'Oakwood Park Bench', status: 'in_progress', assigned: true, coords: [38.7595, -9.1020] }
+  // Demo fallback points if no issues match current domain
+  const demoCityPoints = [
+    { id: 'm1', title: 'Pothole on 4th & Main', location: '4th & Main St', status: 'reported', assigned: true, coords: [38.7652, -9.1120] },
+    { id: 'm2', title: 'Broken streetlight — Elm St', location: 'Elm St & 3rd Ave', status: 'reported', assigned: false, coords: [38.7573, -9.1145] },
+    { id: 'm3', title: 'Graffiti on wall — Park Ave', location: 'Park Ave & 2nd St', status: 'in_progress', assigned: true, coords: [38.7565, -9.1090] },
+    { id: 'm4', title: 'Overflowing bin — Market St', location: 'Market St & Center', status: 'resolved', assigned: true, coords: [38.7619, -9.1081] },
+    { id: 'm5', title: 'Downtown Traffic Light', location: 'Downtown Central District', status: 'resolved', assigned: true, coords: [38.7615, -9.1110] },
+    { id: 'm6', title: 'Riverview Water Pipe', location: 'Riverview Promenade', status: 'reported', assigned: false, coords: [38.7670, -9.1170] },
+    { id: 'm7', title: 'Oakwood Park Bench', location: 'Oakwood Park East', status: 'in_progress', assigned: true, coords: [38.7595, -9.1020] }
   ];
 
-  // Merge database issues with coordinates
-  const mapPoints = relevantIssues.length > 0
-    ? relevantIssues.map(issue => ({
-        ...issue,
-        coords: issue.coords || getLocationCoordinates(issue.location)
-      }))
-    : demoPoints;
+  const demoCampusPoints = [
+    { id: 'c1', title: 'Hostel 1 Water Leakage', location: 'Boys Hostel 1 - ABESIT', status: 'reported', assigned: false, coords: [28.6345, 77.4485] },
+    { id: 'c2', title: 'Library AC Malfunction', location: 'ABESIT Central Library', status: 'in_progress', assigned: true, coords: [28.6340, 77.4468] },
+    { id: 'c3', title: 'Block A Electrical Socket', location: 'ABESIT Block A - Room 101', status: 'reported', assigned: false, coords: [28.6335, 77.4470] },
+    { id: 'c4', title: 'Canteen Water Purifier', location: 'Main Campus Mess & Canteen', status: 'resolved', assigned: true, coords: [28.6342, 77.4478] }
+  ];
 
+  // Active points: prioritize real database issues, fallback to domain demo points
+  let mapPoints = [];
+  if (relevantIssues.length > 0) {
+    mapPoints = relevantIssues.map(issue => ({
+      ...issue,
+      coords: issue.coords || (issue.latitude && issue.longitude ? [issue.latitude, issue.longitude] : getLocationCoordinates(issue.location))
+    }));
+  } else {
+    mapPoints = domain === 'on-campus' ? demoCampusPoints : demoCityPoints;
+  }
+
+  // Calculate dynamic counts
+  const openCount = mapPoints.filter(p => p.status === 'reported' || p.status === 'open').length;
+  const inProgressCount = mapPoints.filter(p => p.status === 'in_progress').length;
+  const unassignedCount = mapPoints.filter(p => p.status !== 'resolved' && !p.assignedToUser && !p.assigned).length;
+  const resolvedCount = mapPoints.filter(p => p.status === 'resolved').length;
+
+  // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
     if (!mapInstanceRef.current) {
-      const centerCoords = mapPoints.length > 0 && mapPoints[0].coords 
-        ? mapPoints[0].coords 
-        : CITY_COORDINATES.center;
+      const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
 
       const map = L.map(mapContainerRef.current, {
-        center: centerCoords,
+        center: defaultCenter,
         zoom: 13,
         zoomControl: false,
         attributionControl: false
       });
 
-      // CartoDB Positron clean map tiles
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      // Reliable OpenStreetMap standard tile layer
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
-        subdomains: 'abcd'
+        subdomains: ['a', 'b', 'c']
       }).addTo(map);
 
       mapInstanceRef.current = map;
+      markersLayerRef.current = L.layerGroup().addTo(map);
     }
 
     const map = mapInstanceRef.current;
+    const markersLayer = markersLayerRef.current;
 
-    // Clear old markers
-    const markerLayer = L.layerGroup().addTo(map);
+    // Clear previous markers
+    markersLayer.clearLayers();
+
+    const createdMarkers = [];
 
     mapPoints.forEach(point => {
-      if (!point.coords || !Array.isArray(point.coords)) return;
+      if (!point.coords || !Array.isArray(point.coords) || typeof point.coords[0] !== 'number') return;
 
       let icon = pinOpen;
       if (point.status === 'resolved') {
@@ -120,19 +136,19 @@ export const LiveMapWidget = ({ onExpandMap }) => {
 
       const marker = L.marker(point.coords, { icon });
       marker.bindPopup(`
-        <div style="font-family: sans-serif; font-size: 12px; min-width: 150px; padding: 4px;">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; min-width: 170px; padding: 4px;">
           <strong style="color: #0f172a; display: block; font-size: 13px; margin-bottom: 2px;">
             ${point.title}
           </strong>
-          <span style="color: #64748b; font-size: 11px;">
-            ${point.location || 'Reported Location'}
+          <span style="color: #64748b; font-size: 11px; display: block; margin-bottom: 6px;">
+            📍 ${point.location || 'Reported Location'}
           </span>
-          <div style="margin-top: 6px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
             <span style="
               text-transform: uppercase; 
               font-weight: 700; 
               font-size: 9px; 
-              padding: 2px 5px; 
+              padding: 2px 6px; 
               border-radius: 4px;
               background: ${point.status === 'resolved' ? '#ecfdf5' : point.status === 'in_progress' ? '#fffbeb' : '#fef2f2'};
               color: ${point.status === 'resolved' ? '#059669' : point.status === 'in_progress' ? '#d97706' : '#dc2626'};
@@ -144,9 +160,9 @@ export const LiveMapWidget = ({ onExpandMap }) => {
               color: white; 
               border: none; 
               border-radius: 4px; 
-              padding: 2px 8px; 
+              padding: 3px 10px; 
               font-size: 10px; 
-              font-weight: 600; 
+              font-weight: 700; 
               cursor: pointer;
             ">
               View
@@ -164,23 +180,49 @@ export const LiveMapWidget = ({ onExpandMap }) => {
         }
       });
 
-      markerLayer.addLayer(marker);
+      markersLayer.addLayer(marker);
+      createdMarkers.push(marker);
     });
 
+    // Auto-fit bounds so markers are always visible and centered!
+    if (createdMarkers.length > 0) {
+      try {
+        const group = L.featureGroup(createdMarkers);
+        map.fitBounds(group.getBounds().pad(0.18), { maxZoom: 15 });
+      } catch {
+        const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
+        map.setView(defaultCenter, 13);
+      }
+    } else {
+      const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
+      map.setView(defaultCenter, 13);
+    }
+
+    // Fix map container rendering size
+    const resizeTimer1 = setTimeout(() => map.invalidateSize(), 150);
+    const resizeTimer2 = setTimeout(() => map.invalidateSize(), 450);
+
     return () => {
-      map.removeLayer(markerLayer);
+      clearTimeout(resizeTimer1);
+      clearTimeout(resizeTimer2);
     };
   }, [issues, domain]);
 
   const handleZoomIn = () => mapInstanceRef.current?.zoomIn();
   const handleZoomOut = () => mapInstanceRef.current?.zoomOut();
   const handleRecenter = () => {
-    if (mapInstanceRef.current) {
-      const centerCoords = mapPoints.length > 0 && mapPoints[0].coords 
-        ? mapPoints[0].coords 
-        : CITY_COORDINATES.center;
-      mapInstanceRef.current.setView(centerCoords, 13);
+    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+    if (markersLayerRef.current) {
+      const layers = markersLayerRef.current.getLayers();
+      if (layers.length > 0) {
+        const group = L.featureGroup(layers);
+        map.fitBounds(group.getBounds().pad(0.18), { maxZoom: 15 });
+        return;
+      }
     }
+    const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
+    map.setView(defaultCenter, 13);
   };
 
   return (
@@ -201,7 +243,7 @@ export const LiveMapWidget = ({ onExpandMap }) => {
       <div className="map-canvas-container">
         <div 
           ref={mapContainerRef} 
-          style={{ width: '100%', height: '100%' }} 
+          style={{ width: '100%', height: '100%', minHeight: '260px' }} 
         />
 
         {/* Custom Zoom & Location Controls */}
@@ -219,6 +261,7 @@ export const LiveMapWidget = ({ onExpandMap }) => {
             className="icon-action-btn"
             style={{ width: '28px', height: '28px', borderRadius: '4px' }}
             title="Zoom In"
+            aria-label="Zoom in"
           >
             <Plus size={14} />
           </button>
@@ -227,6 +270,7 @@ export const LiveMapWidget = ({ onExpandMap }) => {
             className="icon-action-btn"
             style={{ width: '28px', height: '28px', borderRadius: '4px' }}
             title="Zoom Out"
+            aria-label="Zoom out"
           >
             <Minus size={14} />
           </button>
@@ -235,29 +279,30 @@ export const LiveMapWidget = ({ onExpandMap }) => {
             className="icon-action-btn"
             style={{ width: '28px', height: '28px', borderRadius: '4px' }}
             title="Recenter Map"
+            aria-label="Recenter map"
           >
             <Crosshair size={14} />
           </button>
         </div>
       </div>
 
-      {/* Map Legend matching Fixly screenshot */}
+      {/* Map Legend matching Fixly screenshot with dynamic counts */}
       <div className="map-legend-row">
         <div className="legend-item">
           <span className="legend-dot" style={{ background: '#ef4444' }} />
-          <span>5 Open</span>
+          <span>{openCount} Open</span>
         </div>
         <div className="legend-item">
           <span className="legend-dot" style={{ background: '#f97316' }} />
-          <span>3 In progress</span>
+          <span>{inProgressCount} In progress</span>
         </div>
         <div className="legend-item">
           <span className="legend-dot" style={{ background: '#8b5cf6' }} />
-          <span>2 Unassigned</span>
+          <span>{unassignedCount} Unassigned</span>
         </div>
         <div className="legend-item">
           <span className="legend-dot" style={{ background: '#10b981' }} />
-          <span>14 Resolved</span>
+          <span>{resolvedCount} Resolved</span>
         </div>
       </div>
     </div>
