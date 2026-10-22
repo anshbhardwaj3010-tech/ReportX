@@ -28,8 +28,8 @@ const MAINTENANCE_DEPARTMENTS = [
 ];
 
 export const AuthModal = () => {
-  const { isAuthModalOpen, setIsAuthModalOpen, login, signup, resendVerification } = useIssues();
-  const [isSignupTab, setIsSignupTab] = useState(false);
+  const { isAuthModalOpen, setIsAuthModalOpen, authModalMode, login, signup, resendVerification } = useIssues();
+  const [isSignupTab, setIsSignupTab] = useState(authModalMode === 'signup');
   const [accountType, setAccountType] = useState('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +40,12 @@ export const AuthModal = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  React.useEffect(() => {
+    setIsSignupTab(authModalMode === 'signup');
+    setErrorMsg('');
+    setNotice('');
+  }, [authModalMode, isAuthModalOpen]);
 
   if (!isAuthModalOpen) return null;
 

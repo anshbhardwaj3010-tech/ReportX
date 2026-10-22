@@ -7,7 +7,7 @@ const IssueContext = createContext();
 
 export const IssueProvider = ({ children }) => {
   const [domain, setDomain] = useState('off-campus'); // 'off-campus' (City Dashboard) | 'on-campus'
-  const [currentView, setCurrentView] = useState('overview'); // 'overview' | 'map' | 'reports' | 'work_orders' | 'alerts' | 'analytics' | 'team' | 'settings'
+  const [currentView, setCurrentView] = useState('home'); // 'home' | 'overview' | 'map' | 'reports' | 'work_orders' | 'alerts' | 'analytics' | 'team' | 'settings'
   const [theme, setTheme] = useState(() => localStorage.getItem('fixly_theme') || 'light');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [cloudinaryStatus, setCloudinaryStatus] = useState({ enabled: false, cloudName: null });
@@ -17,6 +17,12 @@ export const IssueProvider = ({ children }) => {
   const role = currentUser?.role || 'admin'; // Default to admin for full operations dispatch preview if guest
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState('signin'); // 'signin' | 'signup'
+
+  const openAuthModal = (mode = 'signin') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
 
   const [issues, setIssues] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -321,6 +327,7 @@ export const IssueProvider = ({ children }) => {
       role,
       currentUser,
       isAuthModalOpen, setIsAuthModalOpen,
+      authModalMode, setAuthModalMode, openAuthModal,
       login, signup, resendVerification, logout,
       getStaffApplications, getTechnicians, getPendingIssueReviews,
       approveStaffApplication, assignIssue, reviewIssue,

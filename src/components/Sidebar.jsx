@@ -3,7 +3,7 @@ import { useIssues } from '../context/IssueContext';
 import { 
   MapPin, LayoutGrid, Map, FileText, Wrench, Bell, 
   BarChart3, Users, UserCheck, Settings, ChevronDown, 
-  LogOut, LogIn, Moon, Sun, Sparkles, Cloud 
+  LogOut, LogIn, Moon, Sun, Sparkles, Cloud, Globe 
 } from 'lucide-react';
 
 export const Sidebar = () => {
@@ -19,6 +19,7 @@ export const Sidebar = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const navItemsWorkspace = [
+    { id: 'home', label: 'Public Homepage', icon: Globe },
     { id: 'overview', label: 'Overview', icon: LayoutGrid }
   ];
 
@@ -186,6 +187,17 @@ export const Sidebar = () => {
             >
               <Sparkles size={15} />
               <span>{domain === 'off-campus' ? 'Switch to Campus View' : 'Switch to City View'}</span>
+            </button>
+
+            <button 
+              className="dropdown-item"
+              onClick={() => {
+                setCurrentView('home');
+                setIsUserMenuOpen(false);
+              }}
+            >
+              <Globe size={15} />
+              <span>Visit Public Homepage</span>
             </button>
 
             <button 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useIssues } from '../context/IssueContext';
-import { Calendar, Bell, Plus, Sun, Moon } from 'lucide-react';
+import { Calendar, Bell, Plus, Sun, Moon, Globe } from 'lucide-react';
 
 export const TopHeader = () => {
   const { 
@@ -8,7 +8,8 @@ export const TopHeader = () => {
     notifications, 
     setIsReportModalOpen, 
     theme, 
-    setTheme 
+    setTheme,
+    setCurrentView 
   } = useIssues();
 
   // Dynamic formatted live date matching screenshot "Saturday, April 25"
@@ -37,6 +38,17 @@ export const TopHeader = () => {
           <Calendar size={15} color="var(--text-muted)" />
           <span>{todayFormatted}</span>
         </div>
+
+        {/* Public Portal Switcher */}
+        <button 
+          className="btn-secondary"
+          onClick={() => setCurrentView('home')}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.75rem', fontSize: '0.8rem', borderRadius: '0.5rem', cursor: 'pointer' }}
+          title="Return to Public Homepage"
+        >
+          <Globe size={15} />
+          <span>Public Portal</span>
+        </button>
 
         {/* Theme Toggle */}
         <button 

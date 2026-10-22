@@ -12,48 +12,54 @@ import { SettingsModal } from './components/SettingsModal';
 import { QuickReportModal } from './components/QuickReportModal';
 import { IssueDetailModal } from './components/IssueDetailModal';
 import { AuthModal } from './components/AuthModal';
-import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { HomePage } from './components/HomePage';
 
 const DashboardMain = () => {
   const { currentView, setCurrentView, toastMessage } = useIssues();
 
   return (
-    <div className="app-shell">
-      {/* 1. Left Fixed Navigation Sidebar */}
-      <Sidebar />
+    <>
+      {currentView === 'home' ? (
+        <HomePage />
+      ) : (
+        <div className="app-shell">
+          {/* 1. Left Fixed Navigation Sidebar */}
+          <Sidebar />
 
-      {/* 2. Operations Center Main Viewport */}
-      <main className="main-viewport">
-        {/* Top Header Bar with Live Date & Notifications */}
-        <TopHeader />
+          {/* 2. Operations Center Main Viewport */}
+          <main className="main-viewport">
+            {/* Top Header Bar with Live Date & Notifications */}
+            <TopHeader />
 
-        {currentView === 'overview' ? (
-          <>
-            {/* Needs Attention [Action Required] Banner */}
-            <NeedsAttentionBanner 
-              onFocusFilter={(type) => {
-                if (type === 'unassigned') setCurrentView('work_orders');
-                else if (type === 'overdue' || type === 'nearing_sla') setCurrentView('alerts');
-              }} 
-            />
+            {currentView === 'overview' ? (
+              <>
+                {/* Needs Attention [Action Required] Banner */}
+                <NeedsAttentionBanner 
+                  onFocusFilter={(type) => {
+                    if (type === 'unassigned') setCurrentView('work_orders');
+                    else if (type === 'overdue' || type === 'nearing_sla') setCurrentView('alerts');
+                  }} 
+                />
 
-            {/* 5 KPI Metric Cards Row */}
-            <StatsRow />
+                {/* 5 KPI Metric Cards Row */}
+                <StatsRow />
 
-            {/* Two-Column Middle Section: High Priority List + Live Map */}
-            <div className="two-column-grid">
-              <HighPriorityList onViewAll={() => setCurrentView('reports')} />
-              <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
-            </div>
+                {/* Two-Column Middle Section: High Priority List + Live Map */}
+                <div className="two-column-grid">
+                  <HighPriorityList onViewAll={() => setCurrentView('reports')} />
+                  <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
+                </div>
 
-            {/* Bottom Section: Recent Reports Data Table */}
-            <RecentReportsTable onViewAll={() => setCurrentView('reports')} />
-          </>
-        ) : (
-          /* Secondary Views (Map, Reports, Work Orders, Alerts, Analytics, Team) */
-          <NavigationViews />
-        )}
-      </main>
+                {/* Bottom Section: Recent Reports Data Table */}
+                <RecentReportsTable onViewAll={() => setCurrentView('reports')} />
+              </>
+            ) : (
+              /* Secondary Views (Map, Reports, Work Orders, Alerts, Analytics, Team) */
+              <NavigationViews />
+            )}
+          </main>
+        </div>
+      )}
 
       {/* Floating Modals */}
       <SettingsModal />
@@ -74,7 +80,7 @@ const DashboardMain = () => {
           <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{toastMessage.message}</span>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
