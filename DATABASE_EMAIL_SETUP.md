@@ -24,7 +24,7 @@ Copy `server/.env.example` to `server/.env`, then set:
 - `MAINTENANCE_EMAIL`: the real maintenance-office mailbox; new issue reports and verified staff applications are sent there
 - `ADMIN_EMAILS`: comma-separated list of office admin email addresses; only verified accounts matching this server-only allowlist are promoted to admin on sign-in
 - `CLIENT_URL`: comma-separated browser origins allowed to call the API
-- `PUBLIC_APP_URL`: the one canonical URL placed in verification emails; set this to an address every device can reach
+- `PUBLIC_APP_URL`: fallback frontend URL for verification emails if the request has no approved browser origin
 
 Never commit `server/.env` or share its values. The repository ignores environment files; only `.env.example` is intended to be committed.
 
@@ -42,26 +42,58 @@ npm run dev
 
 Open the Vite URL printed by the second command. The API listens on port 5000. If Atlas or email settings are missing or incorrect, the API reports the relevant startup/request error rather than using fallback credentials.
 
+If sign-in or signup shows **Could not reach the ReportX API** (or a browser-level “Failed to fetch”), check the API terminal. The API will not start until both `MONGO_URI` and `JWT_SECRET` are set. After editing `server/.env`, stop and restart `npm run server`; changing the file does not update an already-running process. Also make sure `VITE_API_URL` points to the reachable API and that the current browser origin is allowed by `CLIENT_URL`.
+
+Verification links use the approved browser origin that initiated signup or resend, so links opened from the deployed app return to that app instead of a hard-coded local URL. For production, set `CLIENT_URL` to your deployed frontend origin and set `PUBLIC_APP_URL` to that same public URL as a fallback. Set the frontend build variable `VITE_API_URL` to the deployed API base URL ending in `/api` (for example, `https://your-api-host.example/api`). Redeploy/restart after changing these settings. If you already received a link that points to localhost or a private network address, use **Resend verification email** after updating the settings; the old link destination cannot be changed.
+
+Adding `JWT_SECRET` later does not by itself require creating the account again. User records remain in MongoDB, so restart the API and sign in with the existing verified account. If signup never completed successfully, submit it once the API is running. If the email is already registered but not verified, switch to **Create account** and use **Resend verification email** rather than signing up again.
+
 ## 4. Use the app from a phone on the same Wi-Fi
 
 1. Connect the computer and phone to the same Wi-Fi network. On Windows, run `ipconfig` and note the computer's **IPv4 Address** for that Wi-Fi adapter (for example, `192.168.1.25`).
 2. Add the phone-facing Vite origin to `CLIENT_URL` in `server/.env`, separated by a comma. For example: `CLIENT_URL=http://localhost:5173,http://192.168.1.25:5173`. Replace the example address with the computer's actual IPv4 address.
-3. Set `PUBLIC_APP_URL` to that same phone-facing address, for example `PUBLIC_APP_URL=http://192.168.1.25:5173`. Verification links always use this canonical URL, regardless of whether signup was started from localhost or the phone-facing address.
+3. Set `PUBLIC_APP_URL` to that same phone-facing address as a fallback, for example `PUBLIC_APP_URL=http://192.168.1.25:5173`. New verification links use the address from which signup or resend was requested, when that origin is allowed by `CLIENT_URL`.
 4. Restart the API. Start Vite with `npm run dev -- --host 0.0.0.0` so it accepts connections from the local network.
 5. On both the PC and phone, open `http://192.168.1.25:5173`, using the same actual computer address. If Windows Firewall asks, allow Node.js on your private network.
 6. Every report must include a video (MP4, WebM, or MOV up to 12 MB); a photo (JPEG, PNG, or WebP up to 8 MB) is optional. The AI sends the report description and attached evidence to Google's Gemini API for screening. Do not upload private or sensitive footage without permission.
 
-AI screening is a triage aid, not a forensic authenticity detector. Only a video that Gemini judges to clearly match the issue with at least 90% confidence and no risk flags is accepted; suspicious, uncertain, unavailable, and low-confidence results are not saved as reports. Users are asked to provide clearer, original evidence and retry. Exact re-uploads of a video already used on another report are blocked. Visual screening cannot prove that a file came from Google or another website; reliable source attribution requires reverse-image/video search. Admins can reopen unassigned AI-approved reports for review.
+AI screening is a triage aid, not a forensic authenticity detector. A video Gemini judges to clearly match the issue with at least 90% confidence and no risk flags is accepted automatically. Reports Gemini marks suspicious or uncertain are not saved; users are asked to provide clearer, original evidence and retry. If screening is unavailable, the report is saved as unverified in the admin manual-review queue and cannot be assigned until an admin verifies it. Exact re-uploads of a video already used on another report are blocked. Visual screening cannot prove that a file came from Google or another website; reliable source attribution requires reverse-image/video search. Admins can reopen unassigned AI-approved reports for review.
 
 Uploaded images are kept on the API host in `server/uploads`; issue records in MongoDB store their image paths. This is suitable for local development. For deployment, use persistent disk storage or move the uploads to object storage such as Cloudinary or S3, because many hosting platforms erase local files when a service restarts.
 
 ## 5. Staff signup and maintenance dispatch
 
 1. Students create a student account and verify their email before reporting issues.
-2. Maintenance employees choose **Maintenance staff** at signup, enter their employee ID and department, and verify their email. Their account remains pending until an admin approves it.
+2. Maintenance employees choose **Maintenance staff** at signup, select either **City Operations** or **Campus Operations**, enter their employee ID and department, and verify their email. Their account remains pending until an admin approves it, and employees can only receive work orders from their selected operation.
 3. Set `ADMIN_EMAILS` to the verified account email(s) of the maintenance-office admins, restart the API, then sign out and back in. The API promotes only those verified allowlisted accounts to admin; public signup cannot select the admin role. The **Office dashboard** navigation button appears only for admins.
-4. Each new report is emailed to the reporter and `MAINTENANCE_EMAIL`. The maintenance office assigns it to an approved employee in the matching department (or general maintenance). Assignment emails go to the employee and reporter.
-5. Employees see and update only their assigned tickets. Status changes notify the reporter and assigned employee.
-6. AI screens new report evidence before accepting it. Uncertain or suspicious evidence is rejected at submission; admins can reopen unassigned AI-approved reports for review. Rejected reports require a reason and cannot be assigned. The reporter earns 50 stored reward points once the genuine report is fully resolved; duplicate completion requests do not award points again.
+4. Admins can switch between City and Campus Operations. Reports, staff applications, approved employees, dispatch, and the City map are scoped to the selected operation. Employees cannot be assigned across City/Campus scopes.
+5. Each new report is emailed to the reporter and `MAINTENANCE_EMAIL`. The maintenance office assigns it to an approved employee in the matching operation and department (or general maintenance). Assignment emails go to the employee and reporter.
+6. Employees see and update only their assigned tickets in their selected operation. Status changes notify the reporter and assigned employee.
+7. AI screens new report evidence before accepting it. Uncertain or suspicious evidence is rejected at submission; admins can reopen unassigned AI-approved reports for review. Rejected reports require a reason and cannot be assigned. The reporter earns 50 stored reward points once the genuine report is fully resolved; duplicate completion requests do not award points again.
+
+Existing maintenance accounts without an operation scope are migrated to **Campus Operations** on the next API startup. Any open or in-progress work order assigned across a City/Campus boundary is safely reopened as unassigned so it can be dispatched to the correct team.
+
+### Local demo employee accounts
+
+For a local demonstration without creating employee mailboxes, open PowerShell in the project root, choose your own temporary demo password, and run:
+
+```powershell
+$env:DEMO_STAFF_PASSWORD = 'Choose-A-Local-Demo-Password'
+npm run seed:demo-employees
+```
+
+The script creates or refreshes one already-approved **Campus Operations** employee account per department. All nine accounts use the password you supplied:
+
+- `demo.general@reportx.test`
+- `demo.electrical@reportx.test`
+- `demo.plumbing@reportx.test`
+- `demo.appliance@reportx.test`
+- `demo.ro-water@reportx.test`
+- `demo.it-wifi@reportx.test`
+- `demo.cleanliness@reportx.test`
+- `demo.furniture@reportx.test`
+- `demo.safety@reportx.test`
+
+Sign in as an admin, refresh the page, and the approved employees will appear in the admin dashboard and assignment selectors. These `.test` addresses are reserved for demonstrations and do not receive email. Use this only with a local/demo database and never deploy these accounts or their shared password to a public service.
 
 The verification link expires after 24 hours. Passwords are stored as scrypt hashes, and API sessions are signed and expire after seven days.

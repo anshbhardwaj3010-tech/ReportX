@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { 
-  MapPin, LayoutGrid, Map, FileText, Wrench, Bell, 
+  MapPin, Building2, LayoutGrid, Map, FileText, Wrench, Bell,
   BarChart3, Users, UserCheck, Settings, ChevronDown, 
-  LogOut, LogIn, Moon, Sun, Sparkles, Cloud, Globe 
+  LogOut, LogIn, Moon, Sun
 } from 'lucide-react';
 
 export const Sidebar = () => {
@@ -12,32 +12,32 @@ export const Sidebar = () => {
     currentUser, role, logout, 
     setIsAuthModalOpen, setIsSettingsOpen,
     theme, setTheme,
-    domain, setDomain,
-    cloudinaryStatus
+    domain, setDomain, showToast
   } = useIssues();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-  const navItemsWorkspace = [
-    { id: 'home', label: 'Public Homepage', icon: Globe },
-    { id: 'overview', label: 'Overview', icon: LayoutGrid }
-  ];
+  const navItemsOperations = role === 'technician'
+    ? [{ id: 'work_orders', label: 'My Work Orders', icon: Wrench }]
+    : role === 'student'
+      ? [{ id: 'reports', label: 'My Reports', icon: FileText }]
+    : [
+        { id: 'map', label: 'Map', icon: Map },
+        { id: 'reports', label: 'Reports', icon: FileText },
+        { id: 'work_orders', label: 'Work Orders', icon: Wrench },
+        { id: 'alerts', label: 'Alerts', icon: Bell }
+      ];
 
-  const navItemsOperations = [
-    { id: 'map', label: 'Map', icon: Map },
-    { id: 'reports', label: 'Reports', icon: FileText },
-    { id: 'work_orders', label: 'Work Orders', icon: Wrench },
-    { id: 'alerts', label: 'Alerts', icon: Bell }
-  ];
-
-  const navItemsManagement = [
+  const navItemsManagement = role === 'admin' ? [
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'team', label: 'Team', icon: Users },
     { id: 'members', label: 'Members', icon: UserCheck },
     { id: 'settings', label: 'Settings', icon: Settings }
-  ];
+  ] : role === 'technician' ? [
+    { id: 'settings', label: 'Settings', icon: Settings }
+  ] : [];
 
-  const displayName = currentUser?.name || 'Sarah Khan';
+  const displayName = currentUser?.name || 'Guest';
   const displayRole = role === 'admin' ? 'Administrator' : role === 'technician' ? 'Field Technician' : 'Citizen Reporter';
   const userInitials = displayName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'SK';
 
@@ -49,8 +49,8 @@ export const Sidebar = () => {
           <MapPin size={20} />
         </div>
         <div className="brand-info">
-          <h2>Fixly</h2>
-          <p>{domain === 'off-campus' ? 'City Dashboard' : 'Campus Operations'}</p>
+          <h2>ReportX</h2>
+          <p>{domain === 'off-campus' ? 'City Operations' : 'Campus Operations'}{role === 'student' ? ' · Student' : role === 'technician' ? ' · Employee' : ''}</p>
         </div>
       </div>
 
@@ -58,23 +58,48 @@ export const Sidebar = () => {
       <div className="sidebar-nav">
         {/* Workspace */}
         <div className="nav-group-label">Workspace</div>
-        {navItemsWorkspace.map(item => {
-          const Icon = item.icon;
-          const isActive = currentView === item.id;
-          return (
-            <button
-              key={item.id}
-              className={`nav-item-btn ${isActive ? 'active' : ''}`}
-              onClick={() => setCurrentView(item.id)}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+        <button
+          className={`nav-item-btn ${currentView === 'overview' ? 'active' : ''}`}
+          onClick={() => setCurrentView('overview')}
+        >
+          <LayoutGrid size={18} />
+          <span>{role === 'admin' ? 'Admin Dashboard' : role === 'technician' ? 'Employee Dashboard' : 'Overview'}</span>
+        </button>
 
         {/* Operations */}
-        <div className="nav-group-label">Operations</div>
+        {(role === 'admin' || role === 'student') && (
+          <>
+            <div className="nav-group-label">Operations Scope</div>
+            <div className="sidebar-scope-options" role="group" aria-label="Operations scope">
+              <button
+                type="button"
+                className={`sidebar-scope-option${domain === 'off-campus' ? ' active' : ''}`}
+                aria-pressed={domain === 'off-campus'}
+                onClick={() => {
+                  setDomain('off-campus');
+                  showToast(role === 'admin' ? 'Switched to City Operations view' : 'Showing your City reports', 'info');
+                }}
+              >
+                <MapPin size={16} />
+                <span>City Operations</span>
+              </button>
+              <button
+                type="button"
+                className={`sidebar-scope-option${domain === 'on-campus' ? ' active' : ''}`}
+                aria-pressed={domain === 'on-campus'}
+                onClick={() => {
+                  setDomain('on-campus');
+                  showToast(role === 'admin' ? 'Switched to Campus Operations view' : 'Showing your Campus reports', 'info');
+                }}
+              >
+                <Building2 size={16} />
+                <span>Campus Operations</span>
+              </button>
+            </div>
+          </>
+        )}
+
+        {navItemsOperations.length > 0 && <div className="nav-group-label">Operations</div>}
         {navItemsOperations.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
@@ -91,7 +116,7 @@ export const Sidebar = () => {
         })}
 
         {/* Management */}
-        <div className="nav-group-label">Management</div>
+        {navItemsManagement.length > 0 && <div className="nav-group-label">Management</div>}
         {navItemsManagement.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
@@ -112,32 +137,6 @@ export const Sidebar = () => {
             </button>
           );
         })}
-      </div>
-
-      {/* Cloudinary Status Indicator */}
-      <div style={{ padding: '0.5rem 1.15rem' }}>
-        <div 
-          onClick={() => setIsSettingsOpen(true)}
-          style={{
-            background: cloudinaryStatus?.enabled ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-            border: `1px solid ${cloudinaryStatus?.enabled ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
-            borderRadius: '0.5rem',
-            padding: '0.45rem 0.65rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer'
-          }}
-          title="Click to configure Cloudinary acceleration"
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <Cloud size={14} color={cloudinaryStatus?.enabled ? '#10b981' : '#f59e0b'} />
-            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: cloudinaryStatus?.enabled ? '#059669' : '#d97706' }}>
-              {cloudinaryStatus?.enabled ? 'Cloudinary CDN Active' : 'Cloudinary Standby'}
-            </span>
-          </div>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: cloudinaryStatus?.enabled ? '#10b981' : '#f59e0b' }} />
-        </div>
       </div>
 
       {/* Sidebar Footer User Card */}
@@ -181,34 +180,12 @@ export const Sidebar = () => {
             <button 
               className="dropdown-item"
               onClick={() => {
-                setDomain(domain === 'off-campus' ? 'on-campus' : 'off-campus');
-                setIsUserMenuOpen(false);
-              }}
-            >
-              <Sparkles size={15} />
-              <span>{domain === 'off-campus' ? 'Switch to Campus View' : 'Switch to City View'}</span>
-            </button>
-
-            <button 
-              className="dropdown-item"
-              onClick={() => {
-                setCurrentView('home');
-                setIsUserMenuOpen(false);
-              }}
-            >
-              <Globe size={15} />
-              <span>Visit Public Homepage</span>
-            </button>
-
-            <button 
-              className="dropdown-item"
-              onClick={() => {
                 setIsSettingsOpen(true);
                 setIsUserMenuOpen(false);
               }}
             >
               <Settings size={15} />
-              <span>Settings & Cloudinary</span>
+              <span>Settings</span>
             </button>
 
             {currentUser ? (

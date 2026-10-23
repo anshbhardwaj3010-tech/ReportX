@@ -1,11 +1,9 @@
 import React from 'react';
+import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import { IssueProvider, useIssues } from './context/IssueContext';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
-import { NeedsAttentionBanner } from './components/NeedsAttentionBanner';
 import { StatsRow } from './components/StatsRow';
-import { HighPriorityList } from './components/HighPriorityList';
-import { LiveMapWidget } from './components/LiveMapWidget';
 import { RecentReportsTable } from './components/RecentReportsTable';
 import { NavigationViews } from './components/NavigationViews';
 import { SettingsModal } from './components/SettingsModal';
@@ -13,9 +11,12 @@ import { QuickReportModal } from './components/QuickReportModal';
 import { IssueDetailModal } from './components/IssueDetailModal';
 import { AuthModal } from './components/AuthModal';
 import { HomePage } from './components/HomePage';
+import { AdminDashboard } from './components/AdminDashboard';
+import { MaintenancePortal } from './components/MaintenancePortal';
+import { StudentDashboard } from './components/StudentDashboard';
 
 const DashboardMain = () => {
-  const { currentView, setCurrentView, toastMessage } = useIssues();
+  const { currentView, setCurrentView, toastMessage, role, domain, isReportModalOpen } = useIssues();
 
   return (
     <>
@@ -32,27 +33,19 @@ const DashboardMain = () => {
             <TopHeader />
 
             {currentView === 'overview' ? (
-              <>
-                {/* Needs Attention [Action Required] Banner */}
-                <NeedsAttentionBanner 
-                  onFocusFilter={(type) => {
-                    if (type === 'unassigned') setCurrentView('work_orders');
-                    else if (type === 'overdue' || type === 'nearing_sla') setCurrentView('alerts');
-                  }} 
-                />
-
-                {/* 5 KPI Metric Cards Row */}
-                <StatsRow />
-
-                {/* Two-Column Middle Section: High Priority List + Live Map */}
-                <div className="two-column-grid">
-                  <HighPriorityList onViewAll={() => setCurrentView('reports')} />
-                  <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
-                </div>
-
-                {/* Bottom Section: Recent Reports Data Table */}
-                <RecentReportsTable onViewAll={() => setCurrentView('reports')} />
-              </>
+              role === 'admin' ? (
+                <AdminDashboard />
+              ) : role === 'technician' ? (
+                <MaintenancePortal />
+              ) : (
+                <>
+                  <StudentDashboard />
+                  <StatsRow />
+                  <RecentReportsTable onViewAll={() => setCurrentView('reports')} />
+                </>
+              )
+            ) : currentView === 'work_orders' && role === 'technician' ? (
+              <MaintenancePortal />
             ) : (
               /* Secondary Views (Map, Reports, Work Orders, Alerts, Analytics, Team) */
               <NavigationViews />
@@ -63,7 +56,7 @@ const DashboardMain = () => {
 
       {/* Floating Modals */}
       <SettingsModal />
-      <QuickReportModal />
+      <QuickReportModal key={`${domain}-${isReportModalOpen ? 'open' : 'closed'}`} />
       <IssueDetailModal />
       <AuthModal />
 

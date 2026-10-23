@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
-import { CATEGORIES, ON_CAMPUS_LOCATIONS, OFF_CAMPUS_LOCATIONS } from '../data/mockData';
+import { CATEGORIES, ON_CAMPUS_LOCATIONS, OFF_CAMPUS_LOCATIONS, getLocationCoordinates } from '../data/mockData';
 import { PhotoUpload } from './PhotoUpload';
-import { X, Sparkles, AlertTriangle, Zap } from 'lucide-react';
+import { X, Sparkles, AlertTriangle, Zap, MapPin, Building2, ClipboardCheck, ShieldCheck } from 'lucide-react';
+import './QuickReportModal.css';
 
 export const QuickReportModal = () => {
   const { 
@@ -64,6 +65,7 @@ export const QuickReportModal = () => {
       category,
       domain: formDomain,
       location,
+      coords: getLocationCoordinates(location),
       urgency,
       imageUrl,
       videoUrl,
@@ -89,159 +91,126 @@ export const QuickReportModal = () => {
 
   return (
     <div className="modal-overlay" onClick={() => setIsReportModalOpen(false)}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '1rem' }}>
+      <div className="modal-content report-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="report-modal-header">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.4rem', fontWeight: 800 }}>Report Campus or Household Issue</h2>
+            <div className="report-modal-heading">
+              <span className="report-heading-icon"><ClipboardCheck size={20} /></span>
+              <div>
+                <h2>Report an issue</h2>
+                <p className="report-heading-subtitle">Tell us what needs attention. We’ll route it to the right team.</p>
+              </div>
             </div>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>A video of the issue is required to submit this report. You can also attach a photo.</p>
+            <div className="report-requirement"><ShieldCheck size={15} /><span>A short video is required; a photo is optional.</span></div>
           </div>
           <button 
+            className="report-close"
             onClick={() => setIsReportModalOpen(false)}
-            style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+            aria-label="Close report form"
           >
             <X size={22} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {/* Domain Picker */}
-          <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Issue Domain</label>
-            <div className="report-domain-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.4rem' }}>
+        <form onSubmit={handleSubmit} className="report-form">
+          <section className="report-section">
+            <div className="report-section-heading"><span className="report-step">01</span><div><h3>Where is the issue?</h3><p>Choose the area that best describes it.</p></div></div>
+            <div className="report-domain-grid">
               <button 
                 type="button"
+                className={`report-domain-option${formDomain === 'on-campus' ? ' is-active campus' : ''}`}
+                aria-pressed={formDomain === 'on-campus'}
                 onClick={() => { setFormDomain('on-campus'); setLocation(ON_CAMPUS_LOCATIONS[0]); checkDuplicate(ON_CAMPUS_LOCATIONS[0], category, 'on-campus'); }}
-                style={{
-                  padding: '0.6rem',
-                  borderRadius: '0.5rem',
-                  border: formDomain === 'on-campus' ? '2px solid #6366f1' : '1px solid rgba(255, 255, 255, 0.1)',
-                  background: formDomain === 'on-campus' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(15, 23, 42, 0.6)',
-                  color: 'white',
-                  fontWeight: 600,
-                  fontSize: '0.85rem',
-                  cursor: 'pointer'
-                }}
               >
-                🏫 On-Campus Facilities
+                <Building2 size={19} /><span><strong>Campus facilities</strong><small>Hostels, classrooms, labs</small></span>
               </button>
               <button 
                 type="button"
+                className={`report-domain-option${formDomain === 'off-campus' ? ' is-active city' : ''}`}
+                aria-pressed={formDomain === 'off-campus'}
                 onClick={() => { setFormDomain('off-campus'); setLocation(OFF_CAMPUS_LOCATIONS[0]); checkDuplicate(OFF_CAMPUS_LOCATIONS[0], category, 'off-campus'); }}
-                style={{
-                  padding: '0.6rem',
-                  borderRadius: '0.5rem',
-                  border: formDomain === 'off-campus' ? '2px solid #10b981' : '1px solid rgba(255, 255, 255, 0.1)',
-                  background: formDomain === 'off-campus' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(15, 23, 42, 0.6)',
-                  color: 'white',
-                  fontWeight: 600,
-                  fontSize: '0.85rem',
-                  cursor: 'pointer'
-                }}
               >
-                🏡 Off-Campus & Household
+                <MapPin size={19} /><span><strong>Off-campus & household</strong><small>Neighborhoods, homes, streets</small></span>
               </button>
             </div>
-          </div>
+          </section>
 
-          <PhotoUpload label="ISSUE PHOTO (OPTIONAL)" value={imageUrl} onChange={(value) => { setImageUrl(value); setScreeningError(null); }} onUploadingChange={setIsEvidenceUploading} />
-          <PhotoUpload label="ISSUE VIDEO (REQUIRED)" value={videoUrl} onChange={(value) => { setVideoUrl(value); setScreeningError(null); }} onUploadingChange={setIsEvidenceUploading} allowVideo videoOnly />
+          <section className="report-section">
+            <div className="report-section-heading"><span className="report-step">02</span><div><h3>Add evidence</h3><p>A video helps the team understand and verify the issue.</p></div></div>
+            <div className="report-evidence-grid">
+              <div className="report-evidence-card"><PhotoUpload label="PHOTO · OPTIONAL" value={imageUrl} onChange={(value) => { setImageUrl(value); setScreeningError(null); }} onUploadingChange={setIsEvidenceUploading} /></div>
+              <div className="report-evidence-card is-required"><PhotoUpload label="VIDEO · REQUIRED" value={videoUrl} onChange={(value) => { setVideoUrl(value); setScreeningError(null); }} onUploadingChange={setIsEvidenceUploading} allowVideo videoOnly /></div>
+            </div>
+          </section>
 
           {screeningError && (
-            <div role="alert" style={{ padding: '0.85rem', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '0.5rem', background: 'rgba(127,29,29,0.18)' }}>
-              <strong style={{ color: '#fca5a5', fontSize: '0.85rem' }}>Report not submitted</strong>
-              <p style={{ color: '#fecaca', fontSize: '0.8rem', marginTop: '0.25rem' }}>{screeningError.message}</p>
-              {screeningError.assessment?.summary && <p style={{ color: '#cbd5e1', fontSize: '0.8rem', marginTop: '0.35rem' }}>AI finding: {screeningError.assessment.summary}</p>}
-              {screeningError.assessment?.flags?.length > 0 && <p style={{ color: '#fca5a5', fontSize: '0.75rem', marginTop: '0.25rem' }}>Flags: {screeningError.assessment.flags.map((flag) => flag.replaceAll('_', ' ')).join(', ')}</p>}
+            <div className="report-alert report-screening-error" role="alert">
+              <strong>Report not submitted</strong>
+              <p>{screeningError.message}</p>
+              {screeningError.assessment?.summary && <p>AI finding: {screeningError.assessment.summary}</p>}
+              {screeningError.assessment?.flags?.length > 0 && <p>Flags: {screeningError.assessment.flags.map((flag) => flag.replaceAll('_', ' ')).join(', ')}</p>}
             </div>
           )}
 
           {/* AI Banner Message */}
           {aiMessage && (
-            <div style={{ background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.3)', padding: '0.75rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#a5b4fc', fontSize: '0.85rem' }}>
+            <div className="report-ai-message">
               <Sparkles size={16} color="#818cf8" />
               <span>{aiMessage}</span>
             </div>
           )}
 
           {/* Title & Description Inputs */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>ISSUE TITLE</label>
+          <section className="report-section">
+            <div className="report-section-heading"><span className="report-step">03</span><div><h3>Describe the issue</h3><p>Give it a clear title and include useful details.</p></div></div>
+            <div className="report-field">
+            <div className="report-title-row">
+              <label htmlFor="report-title" className="report-label">ISSUE TITLE</label>
               <button 
                 type="button" 
                 onClick={() => handleAIClassify()} 
-                style={{ background: 'transparent', border: 'none', color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                className="report-suggest"
               >
                 <Sparkles size={13} />
                 <span>Suggest category</span>
               </button>
             </div>
             <input 
+              id="report-title"
               type="text"
-              placeholder="e.g. RO Water Purifier Fault or Burnt Switchboard"
+              placeholder="e.g. RO water purifier not working"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onBlur={() => handleAIClassify()}
               required
-              style={{
-                width: '100%',
-                background: 'rgba(15, 23, 42, 0.8)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                borderRadius: '0.5rem',
-                padding: '0.65rem 0.85rem',
-                color: 'white',
-                fontSize: '0.9rem',
-                marginTop: '0.3rem',
-                outline: 'none'
-              }}
+              className="report-input"
             />
           </div>
 
-          <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>DESCRIPTION</label>
+          <div className="report-field">
+            <label htmlFor="report-description" className="report-label">DESCRIPTION</label>
             <textarea 
-              placeholder="Describe the issue clearly (e.g., room number, symptoms)..."
+              id="report-description"
+              placeholder="Describe what happened, where it happened, and any symptoms you noticed..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onBlur={() => handleAIClassify()}
               rows={3}
               required
-              style={{
-                width: '100%',
-                background: 'rgba(15, 23, 42, 0.8)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                borderRadius: '0.5rem',
-                padding: '0.65rem 0.85rem',
-                color: 'white',
-                fontSize: '0.9rem',
-                marginTop: '0.3rem',
-                outline: 'none',
-                resize: 'none'
-              }}
+              className="report-input report-description"
             />
           </div>
+          </section>
 
           {/* Category & Location Row */}
-          <div className="report-field-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>CATEGORY</label>
+          <div className="report-field-grid">
+            <div className="report-field">
+              <label htmlFor="report-category" className="report-label">CATEGORY</label>
               <select 
+                id="report-category"
                 value={category} 
                 onChange={(e) => { setCategory(e.target.value); checkDuplicate(location, e.target.value); }}
-                style={{
-                  width: '100%',
-                  background: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  borderRadius: '0.5rem',
-                  padding: '0.65rem',
-                  color: 'white',
-                  fontSize: '0.85rem',
-                  marginTop: '0.3rem',
-                  outline: 'none'
-                }}
+                className="report-input report-select"
               >
                 {CATEGORIES.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
@@ -249,22 +218,13 @@ export const QuickReportModal = () => {
               </select>
             </div>
 
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>LOCATION / ROOM</label>
+            <div className="report-field">
+              <label htmlFor="report-location" className="report-label">LOCATION / ROOM</label>
               <select 
+                id="report-location"
                 value={location}
                 onChange={(e) => { setLocation(e.target.value); checkDuplicate(e.target.value, category); }}
-                style={{
-                  width: '100%',
-                  background: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  borderRadius: '0.5rem',
-                  padding: '0.65rem',
-                  color: 'white',
-                  fontSize: '0.85rem',
-                  marginTop: '0.3rem',
-                  outline: 'none'
-                }}
+                className="report-input report-select"
               >
                 {(formDomain === 'on-campus' ? ON_CAMPUS_LOCATIONS : OFF_CAMPUS_LOCATIONS).map(loc => (
                   <option key={loc} value={loc}>{loc}</option>
@@ -275,12 +235,12 @@ export const QuickReportModal = () => {
 
           {/* Smart Duplicate Alert Warning */}
           {duplicateWarning && (
-            <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', padding: '0.85rem', borderRadius: '0.5rem' }}>
+            <div className="report-alert report-duplicate-warning">
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                <AlertTriangle size={18} color="#f87171" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <AlertTriangle size={18} className="report-alert-icon" />
                 <div>
-                  <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f87171' }}>Smart Duplicate Alert!</p>
-                  <p style={{ fontSize: '0.8rem', color: '#fca5a5' }}>
+                  <p className="report-alert-title">Similar issue already reported</p>
+                  <p className="report-alert-copy">
                     An unresolved {formDomain} ticket <strong>#{duplicateWarning.id} ({duplicateWarning.title})</strong> is already reported at {location}.
                   </p>
                   <button 
@@ -289,17 +249,7 @@ export const QuickReportModal = () => {
                       upvoteIssue(duplicateWarning.id);
                       setIsReportModalOpen(false);
                     }}
-                    style={{
-                      marginTop: '0.5rem',
-                      background: '#ef4444',
-                      color: 'white',
-                      border: 'none',
-                      padding: '0.4rem 0.8rem',
-                      borderRadius: '0.4rem',
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
+                    className="report-upvote"
                   >
                     +1 I Face This Too (Upvote Existing Ticket #{duplicateWarning.id})
                   </button>
@@ -309,9 +259,9 @@ export const QuickReportModal = () => {
           )}
 
           {/* Urgency Radio Selector */}
-          <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>URGENCY LEVEL</label>
-            <div className="report-urgency-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginTop: '0.3rem' }}>
+          <section className="report-section report-urgency-section">
+            <div className="report-section-heading"><span className="report-step">04</span><div><h3>Set urgency</h3><p>Choose how quickly this issue needs attention.</p></div></div>
+            <div className="report-urgency-grid">
               {[
                 { id: 'low', label: 'Low', color: '#10b981' },
                 { id: 'medium', label: 'Medium', color: '#f59e0b' },
@@ -321,30 +271,22 @@ export const QuickReportModal = () => {
                 <button
                   key={u.id}
                   type="button"
+                  className={`report-urgency-option${urgency === u.id ? ` is-active urgency-${u.id}` : ''}`}
+                  aria-pressed={urgency === u.id}
                   onClick={() => setUrgency(u.id)}
-                  style={{
-                    padding: '0.5rem',
-                    borderRadius: '0.4rem',
-                    border: urgency === u.id ? `2px solid ${u.color}` : '1px solid rgba(255, 255, 255, 0.1)',
-                    background: urgency === u.id ? `${u.color}20` : 'rgba(15, 23, 42, 0.6)',
-                    color: urgency === u.id ? u.color : '#94a3b8',
-                    fontWeight: 700,
-                    fontSize: '0.85rem',
-                    cursor: 'pointer'
-                  }}
                 >
                   {u.label}
                 </button>
               ))}
             </div>
-          </div>
+          </section>
 
           {/* Buttons */}
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-            <button type="button" className="btn-secondary" onClick={() => setIsReportModalOpen(false)}>
+          <div className="report-form-actions">
+            <button type="button" className="btn-secondary report-cancel" onClick={() => setIsReportModalOpen(false)}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={isEvidenceUploading || !videoUrl || Boolean(duplicateWarning)}>
+            <button type="submit" className="btn-primary report-submit" disabled={isEvidenceUploading || !videoUrl || Boolean(duplicateWarning)}>
               <Zap size={18} />
               <span>AI Check & Submit</span>
             </button>

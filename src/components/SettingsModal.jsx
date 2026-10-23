@@ -6,9 +6,7 @@ export const SettingsModal = () => {
   const { 
     isSettingsOpen, setIsSettingsOpen, 
     theme, setTheme, 
-    domain, setDomain,
     cloudinaryStatus,
-    showToast
   } = useIssues();
 
   if (!isSettingsOpen) return null;
@@ -24,7 +22,7 @@ export const SettingsModal = () => {
             </div>
             <div>
               <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 800 }}>Platform Settings & Acceleration</h2>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure Cloudinary CDN, appearances, and operations mode</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure media delivery and appearance</p>
             </div>
           </div>
           <button 
@@ -96,7 +94,7 @@ export const SettingsModal = () => {
               }}
             >
               <Sun size={16} />
-              <span>Fixly Crisp Light (Default)</span>
+              <span>ReportX Crisp Light (Default)</span>
             </button>
 
             <button
@@ -119,58 +117,6 @@ export const SettingsModal = () => {
             >
               <Moon size={16} />
               <span>Midnight Operations Dark</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Section 3: Operations Domain Switcher */}
-        <div style={{ marginBottom: '1.25rem' }}>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.45rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Operations Scope / Domain
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setDomain('off-campus');
-                showToast('Switched to City Operations view', 'info');
-              }}
-              style={{
-                padding: '0.75rem',
-                borderRadius: '0.65rem',
-                border: `2px solid ${domain === 'off-campus' ? 'var(--primary)' : 'var(--border-color)'}`,
-                background: domain === 'off-campus' ? 'var(--primary-subtle)' : 'var(--bg-card)',
-                color: domain === 'off-campus' ? 'var(--primary)' : 'var(--text-secondary)',
-                fontWeight: 700,
-                fontSize: '0.84rem',
-                cursor: 'pointer',
-                textAlign: 'left'
-              }}
-            >
-              <div style={{ fontWeight: 800 }}>City Dashboard (Fixly)</div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>Potholes, streetlights, sanitation, traffic</div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setDomain('on-campus');
-                showToast('Switched to Campus Operations view', 'info');
-              }}
-              style={{
-                padding: '0.75rem',
-                borderRadius: '0.65rem',
-                border: `2px solid ${domain === 'on-campus' ? 'var(--primary)' : 'var(--border-color)'}`,
-                background: domain === 'on-campus' ? 'var(--primary-subtle)' : 'var(--bg-card)',
-                color: domain === 'on-campus' ? 'var(--primary)' : 'var(--text-secondary)',
-                fontWeight: 700,
-                fontSize: '0.84rem',
-                cursor: 'pointer',
-                textAlign: 'left'
-              }}
-            >
-              <div style={{ fontWeight: 800 }}>Campus Facilities (ReportX)</div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>Hostels, labs, library, electrical, RO water</div>
             </button>
           </div>
         </div>

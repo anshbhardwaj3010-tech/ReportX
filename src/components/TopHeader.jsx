@@ -1,15 +1,17 @@
 import React from 'react';
 import { useIssues } from '../context/IssueContext';
-import { Calendar, Bell, Plus, Sun, Moon, Globe } from 'lucide-react';
+import { Calendar, Bell, Plus, Sun, Moon } from 'lucide-react';
 
 export const TopHeader = () => {
   const { 
-    domain, 
+    domain,
+    role,
     notifications, 
+    currentUser,
+    openAuthModal,
     setIsReportModalOpen, 
     theme, 
-    setTheme,
-    setCurrentView 
+    setTheme
   } = useIssues();
 
   // Dynamic formatted live date matching screenshot "Saturday, April 25"
@@ -19,36 +21,33 @@ export const TopHeader = () => {
     day: 'numeric'
   }).format(new Date());
 
-  const unreadCount = notifications.filter(n => !n.read).length || 3;
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <header className="operations-topbar">
       <div className="op-title-area">
-        <h1>Operations Center</h1>
+        <h1>{role === 'admin'
+          ? `${domain === 'off-campus' ? 'City' : 'Campus'} Operations Admin`
+          : role === 'technician'
+            ? `${domain === 'off-campus' ? 'City' : 'Campus'} Employee Work Orders`
+            : `${domain === 'off-campus' ? 'City' : 'Campus'} Student Dashboard`}</h1>
         <p>
-          {domain === 'off-campus' 
-            ? "Here's what's happening in your city today." 
-            : "Here's what's happening across campus facilities today."}
+          {role === 'admin'
+            ? 'Review reports, verify evidence, and assign approved issues to employees.'
+            : role === 'technician'
+              ? 'Work on reports assigned to you by the maintenance office.'
+              : `Submit ${domain === 'off-campus' ? 'city' : 'campus'} reports and follow your progress from one place.`}
         </p>
       </div>
 
       <div className="op-controls-area">
         {/* Live Date Badge */}
-        <div className="date-badge">
-          <Calendar size={15} color="var(--text-muted)" />
-          <span>{todayFormatted}</span>
-        </div>
-
-        {/* Public Portal Switcher */}
-        <button 
-          className="btn-secondary"
-          onClick={() => setCurrentView('home')}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.75rem', fontSize: '0.8rem', borderRadius: '0.5rem', cursor: 'pointer' }}
-          title="Return to Public Homepage"
-        >
-          <Globe size={15} />
-          <span>Public Portal</span>
-        </button>
+        {role !== 'student' && (
+          <div className="date-badge">
+            <Calendar size={15} color="var(--text-muted)" />
+            <span>{todayFormatted}</span>
+          </div>
+        )}
 
         {/* Theme Toggle */}
         <button 
@@ -61,23 +60,28 @@ export const TopHeader = () => {
         </button>
 
         {/* Notification Bell with Badge */}
-        <button 
-          className="icon-action-btn"
-          aria-label="Notifications"
-          title={`${unreadCount} notifications`}
-        >
-          <Bell size={16} />
-          {unreadCount > 0 && (
-            <span className="notif-badge-bubble">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </button>
+        {role !== 'student' && (
+          <button
+            className="icon-action-btn"
+            aria-label="Notifications"
+            title={`${unreadCount} notifications`}
+          >
+            <Bell size={16} />
+            {unreadCount > 0 && (
+              <span className="notif-badge-bubble">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Quick Report Issue Action */}
-        <button 
+        <button
           className="btn-primary-action"
-          onClick={() => setIsReportModalOpen(true)}
+          onClick={() => {
+            if (currentUser) setIsReportModalOpen(true);
+            else openAuthModal('signin');
+          }}
         >
           <Plus size={16} strokeWidth={3} />
           <span>Report Issue</span>

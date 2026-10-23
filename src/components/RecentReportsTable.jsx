@@ -3,7 +3,7 @@ import { useIssues } from '../context/IssueContext';
 import { CATEGORIES } from '../data/mockData';
 import { 
   Car, Building2, Trash2, Lightbulb, Sparkles, 
-  ShieldAlert, Droplets, Wrench, Clock 
+  ShieldAlert, Droplets, Wrench
 } from 'lucide-react';
 
 const CATEGORY_ICON_MAP = {
@@ -17,82 +17,14 @@ const CATEGORY_ICON_MAP = {
 };
 
 export const RecentReportsTable = ({ onViewAll }) => {
-  const { issues, domain, setSelectedIssue } = useIssues();
+  const { dashboardIssues: issues, domain, role, setSelectedIssue } = useIssues();
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'open' | 'in_progress' | 'resolved'
 
-  const relevantIssues = issues.filter(i => !domain || i.domain === domain || domain === 'off-campus');
+  const relevantIssues = role === 'student'
+    ? issues.filter((issue) => issue.domain === domain)
+    : issues.filter(i => i.domain === domain);
 
-  // Seed default reports matching Fixly screenshot if database has fewer items
-  const seedReports = [
-    {
-      id: 'REP-7401',
-      title: 'Pothole on Main St',
-      location: 'Main St & 1st Ave',
-      category: 'roads',
-      categoryName: 'Roads',
-      status: 'in_progress',
-      urgency: 'high',
-      reportedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
-      formattedReported: 'Apr 25, 9:24 AM',
-      age: '7h'
-    },
-    {
-      id: 'REP-7402',
-      title: 'Broken streetlight — Elm St',
-      location: 'Elm St & 3rd Ave',
-      category: 'infrastructure',
-      categoryName: 'Infrastructure',
-      status: 'reported',
-      urgency: 'medium',
-      reportedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
-      formattedReported: 'Apr 25, 8:12 AM',
-      age: '9h'
-    },
-    {
-      id: 'REP-7403',
-      title: 'Overflowing bin — Park Ave',
-      location: 'Park Ave & 2nd St',
-      category: 'sanitation',
-      categoryName: 'Sanitation',
-      status: 'resolved',
-      urgency: 'medium',
-      reportedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-      formattedReported: 'Apr 24, 4:45 PM',
-      age: '1d'
-    },
-    {
-      id: 'REP-7404',
-      title: 'Water main leak — Central Ave',
-      location: 'Central Ave & 5th St',
-      category: 'plumbing',
-      categoryName: 'Plumbing',
-      status: 'in_progress',
-      urgency: 'high',
-      reportedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      formattedReported: 'Apr 25, 1:15 PM',
-      age: '3h'
-    },
-    {
-      id: 'REP-7405',
-      title: 'Faded pedestrian crosswalk',
-      location: 'Hwy 12 & School St',
-      category: 'safety',
-      categoryName: 'Safety',
-      status: 'reported',
-      urgency: 'low',
-      reportedAt: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-      formattedReported: 'Apr 24, 8:30 AM',
-      age: '1.5d'
-    }
-  ];
-
-  // Merge database issues with seed reports
-  const allReports = [...relevantIssues];
-  for (const seed of seedReports) {
-    if (!allReports.some(i => i.title === seed.title || i.id === seed.id)) {
-      allReports.push(seed);
-    }
-  }
+  const allReports = relevantIssues;
 
   // Filter based on tab
   const filteredReports = allReports.filter(report => {
@@ -103,13 +35,13 @@ export const RecentReportsTable = ({ onViewAll }) => {
     return true;
   });
 
-  const totalCount = allReports.length >= 24 ? allReports.length : 24;
-  const openCount = allReports.filter(r => r.status === 'reported' || r.status === 'open').length || 8;
-  const inProgressCount = allReports.filter(r => r.status === 'in_progress').length || 6;
-  const resolvedCount = allReports.filter(r => r.status === 'resolved').length || 10;
+  const totalCount = allReports.length;
+  const openCount = allReports.filter(r => r.status === 'reported' || r.status === 'open').length;
+  const inProgressCount = allReports.filter(r => r.status === 'in_progress').length;
+  const resolvedCount = allReports.filter(r => r.status === 'resolved').length;
 
   const formatAge = (dateStr) => {
-    if (!dateStr) return '1h';
+    if (!dateStr) return '—';
     const diffHours = Math.round((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60));
     if (diffHours < 1) return 'Just now';
     if (diffHours < 24) return `${diffHours}h`;
@@ -118,7 +50,7 @@ export const RecentReportsTable = ({ onViewAll }) => {
   };
 
   const formatReportedTime = (dateStr) => {
-    if (!dateStr) return 'Apr 25, 9:24 AM';
+    if (!dateStr) return '—';
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', {
       month: 'short',
@@ -133,7 +65,7 @@ export const RecentReportsTable = ({ onViewAll }) => {
       {/* Header and Filter Tabs */}
       <div className="reports-header-tabs">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
-          <h2 className="panel-title-text">Recent reports</h2>
+          <h2 className="panel-title-text">{role === 'student' ? 'My recent reports' : 'Recent reports'}</h2>
 
           <div className="tabs-group">
             <button
@@ -261,6 +193,13 @@ export const RecentReportsTable = ({ onViewAll }) => {
                 </tr>
               );
             })}
+            {filteredReports.length === 0 && (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+                  No reports yet. Your submitted reports will appear here.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

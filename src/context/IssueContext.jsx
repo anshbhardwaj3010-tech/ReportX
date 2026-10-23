@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { CATEGORIES } from '../data/mockData';
 
 const API_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:5000/api`;
@@ -14,7 +14,7 @@ export const IssueProvider = ({ children }) => {
 
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('reportx_token'));
   const [currentUser, setCurrentUser] = useState(null);
-  const role = currentUser?.role || 'admin'; // Default to admin for full operations dispatch preview if guest
+  const role = currentUser?.role || 'student';
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('signin'); // 'signin' | 'signup'
@@ -25,6 +25,7 @@ export const IssueProvider = ({ children }) => {
   };
 
   const [issues, setIssues] = useState([]);
+  const [myIssues, setMyIssues] = useState([]);
   const [notifications, setNotifications] = useState([]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,15 +58,28 @@ export const IssueProvider = ({ children }) => {
     }, 4000);
   };
 
-  const request = async (path, options = {}) => {
-    const response = await fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        ...options.headers
+  const request = useCallback(async (path, options = {}) => {
+    let response;
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...options.headers
+        }
+      });
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error(
+          `Could not reach the ReportX API at ${API_URL}. Make sure the API is running, ` +
+          'VITE_API_URL points to the correct address, and CLIENT_URL allows this page. ' +
+          'For local development, start it with "npm run server" and restart it after changing server/.env. ' +
+          'You do not need to create the account again if signup already completed.'
+        );
       }
-    });
+      throw error;
+    }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = new Error(result.error || 'The request could not be completed.');
@@ -75,7 +89,7 @@ export const IssueProvider = ({ children }) => {
       throw error;
     }
     return result;
-  };
+  }, [authToken]);
 
   useEffect(() => {
     const verifyToken = new URLSearchParams(window.location.search).get('verifyToken');
@@ -122,7 +136,19 @@ export const IssueProvider = ({ children }) => {
           if (userResponse.ok) {
             const { user } = await userResponse.json();
             setCurrentUser(user);
+            if (user.role === 'admin' || user.role === 'technician') {
+              if (user.role === 'technician' || user.role === 'pending_technician') setDomain(user.operationDomain || 'on-campus');
+              setMyIssues([]);
+            } else {
+              const mineResponse = await fetch(`${API_URL}/issues/mine`, {
+                headers: { Authorization: `Bearer ${authToken}` }
+              });
+              if (!mineResponse.ok) throw new Error('Could not load your reports.');
+              setMyIssues(await mineResponse.json());
+            }
           }
+        } else {
+          setMyIssues([]);
         }
       } catch (error) {
         if (!hasShownApiError.current) {
@@ -136,10 +162,10 @@ export const IssueProvider = ({ children }) => {
     return () => window.clearInterval(refreshTimer);
   }, [authToken]);
 
-  const showToast = (message, type = 'success') => {
+  const showToast = useCallback((message, type = 'success') => {
     setToastMessage({ message, type, id: Date.now() });
     setTimeout(() => setToastMessage(null), 4000);
-  };
+  }, []);
 
   const addNotification = (text, type = 'info') => {
     const newNotif = {
@@ -160,7 +186,14 @@ export const IssueProvider = ({ children }) => {
     localStorage.setItem('reportx_token', token);
     setAuthToken(token);
     setCurrentUser(user);
+    if (user.role === 'technician' || user.role === 'pending_technician') setDomain(user.operationDomain || 'on-campus');
+    setIssues([]);
+    setMyIssues([]);
+    setNotifications([]);
+    setSelectedIssue(null);
+    setIsReportModalOpen(false);
     setIsAuthModalOpen(false);
+    setCurrentView('overview');
     showToast(`Welcome, ${user.name}.`, 'success');
     addNotification(`Signed in as ${user.name}.`, 'info');
   };
@@ -179,20 +212,35 @@ export const IssueProvider = ({ children }) => {
     body: JSON.stringify({ email })
   });
 
-  const getStaffApplications = () => request('/admin/staff-applications');
-  const getTechnicians = () => request('/admin/technicians');
+  const getStaffApplications = (operationDomain) => request(`/admin/staff-applications?domain=${encodeURIComponent(operationDomain)}`);
+  const getTechnicians = useCallback((operationDomain) => request(`/admin/technicians?domain=${encodeURIComponent(operationDomain)}`), [request]);
   const getPendingIssueReviews = () => request('/admin/issues/pending-review');
-  const approveStaffApplication = (userId) => request(`/admin/staff-applications/${userId}/approve`, {
+  const approveStaffApplication = (userId, operationDomain) => request(`/admin/staff-applications/${userId}/approve?domain=${encodeURIComponent(operationDomain)}`, {
     method: 'PUT'
   });
-  const assignIssue = (issueId, technicianId) => request(`/issues/${issueId}/assign`, {
-    method: 'PUT',
-    body: JSON.stringify({ technicianId })
-  });
-  const reviewIssue = (issueId, decision, reason = '') => request(`/issues/${issueId}/review`, {
-    method: 'PUT',
-    body: JSON.stringify({ decision, reason })
-  });
+  const assignIssue = async (issueId, technicianId, operationDomain) => {
+    const result = await request(`/issues/${issueId}/assign`, {
+      method: 'PUT',
+      body: JSON.stringify({ technicianId, operationDomain })
+    });
+    if (result.issue) {
+      setIssues((previous) => previous.map((issue) => issue.id === issueId ? result.issue : issue));
+    }
+    return result;
+  };
+  const reviewIssue = async (issueId, decision, reason = '') => {
+    const result = await request(`/issues/${issueId}/review`, {
+      method: 'PUT',
+      body: JSON.stringify({ decision, reason })
+    });
+    if (result.issue) {
+      setIssues((previous) => [
+        result.issue,
+        ...previous.filter((issue) => issue.id !== issueId)
+      ]);
+    }
+    return result;
+  };
 
   const uploadImage = async (file) => {
     if (!authToken) throw new Error('Sign in before uploading an image.');
@@ -216,6 +264,12 @@ export const IssueProvider = ({ children }) => {
     localStorage.removeItem('reportx_token');
     setAuthToken(null);
     setCurrentUser(null);
+    setIssues([]);
+    setMyIssues([]);
+    setNotifications([]);
+    setSelectedIssue(null);
+    setIsReportModalOpen(false);
+    setCurrentView('home');
     showToast('Logged out successfully.', 'info');
   };
 
@@ -225,10 +279,17 @@ export const IssueProvider = ({ children }) => {
       return;
     }
     try {
-      const { issue } = await request('/issues', { method: 'POST', body: JSON.stringify(newIssueData) });
+      const { issue, message } = await request('/issues', { method: 'POST', body: JSON.stringify(newIssueData) });
       setIssues((previous) => [issue, ...previous.filter((item) => item.id !== issue.id)]);
-      addNotification(`New issue ${issue.id} was reported.`, 'success');
-      showToast(`Issue ${issue.id} reported.`, 'success');
+      if (currentUser.role !== 'admin' && currentUser.role !== 'technician') {
+        setMyIssues((previous) => [issue, ...previous.filter((item) => item.id !== issue.id)]);
+      }
+      const reviewPending = issue.isGenuine === null;
+      const confirmation = message || (reviewPending
+        ? `Issue ${issue.id} was submitted and is waiting for manual review.`
+        : `Issue ${issue.id} was reported.`);
+      addNotification(confirmation, reviewPending ? 'info' : 'success');
+      showToast(confirmation, reviewPending ? 'info' : 'success');
       setIsReportModalOpen(false);
     } catch (error) {
       if (error.status === 409 && error.duplicate) {
@@ -317,6 +378,10 @@ export const IssueProvider = ({ children }) => {
     return { category: 'cleanliness', categoryName: 'Cleanliness & Hygiene', urgency: 'low', confidence: 90, title: 'General Maintenance' };
   };
 
+  const dashboardIssues = currentUser?.role === 'admin' || currentUser?.role === 'technician'
+    ? issues
+    : myIssues;
+
   return (
     <IssueContext.Provider value={{
       domain, setDomain,
@@ -333,6 +398,7 @@ export const IssueProvider = ({ children }) => {
       approveStaffApplication, assignIssue, reviewIssue,
       uploadImage,
       issues,
+      dashboardIssues,
       notifications,
       searchQuery, setSearchQuery,
       categoryFilter, setCategoryFilter,

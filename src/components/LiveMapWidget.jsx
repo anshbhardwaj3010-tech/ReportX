@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { useIssues } from '../context/IssueContext';
-import { CITY_COORDINATES, getLocationCoordinates } from '../data/mockData';
 import { Plus, Minus, Crosshair } from 'lucide-react';
 
 const createCustomPinIcon = (color) => {
@@ -39,7 +38,7 @@ const createCustomPinIcon = (color) => {
 };
 
 export const LiveMapWidget = ({ onExpandMap }) => {
-  const { issues, domain, setSelectedIssue, setCurrentView } = useIssues();
+  const { dashboardIssues: issues, domain, setSelectedIssue, setCurrentView } = useIssues();
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersLayerRef = useRef(null);
@@ -53,34 +52,7 @@ export const LiveMapWidget = ({ onExpandMap }) => {
   // Filter issues for current domain
   const relevantIssues = issues.filter(i => !domain || i.domain === domain);
 
-  // Demo fallback points if no issues match current domain
-  const demoCityPoints = [
-    { id: 'm1', title: 'Pothole on 4th & Main', location: '4th & Main St', status: 'reported', assigned: true, coords: [38.7652, -9.1120] },
-    { id: 'm2', title: 'Broken streetlight — Elm St', location: 'Elm St & 3rd Ave', status: 'reported', assigned: false, coords: [38.7573, -9.1145] },
-    { id: 'm3', title: 'Graffiti on wall — Park Ave', location: 'Park Ave & 2nd St', status: 'in_progress', assigned: true, coords: [38.7565, -9.1090] },
-    { id: 'm4', title: 'Overflowing bin — Market St', location: 'Market St & Center', status: 'resolved', assigned: true, coords: [38.7619, -9.1081] },
-    { id: 'm5', title: 'Downtown Traffic Light', location: 'Downtown Central District', status: 'resolved', assigned: true, coords: [38.7615, -9.1110] },
-    { id: 'm6', title: 'Riverview Water Pipe', location: 'Riverview Promenade', status: 'reported', assigned: false, coords: [38.7670, -9.1170] },
-    { id: 'm7', title: 'Oakwood Park Bench', location: 'Oakwood Park East', status: 'in_progress', assigned: true, coords: [38.7595, -9.1020] }
-  ];
-
-  const demoCampusPoints = [
-    { id: 'c1', title: 'Hostel 1 Water Leakage', location: 'Boys Hostel 1 - ABESIT', status: 'reported', assigned: false, coords: [28.6345, 77.4485] },
-    { id: 'c2', title: 'Library AC Malfunction', location: 'ABESIT Central Library', status: 'in_progress', assigned: true, coords: [28.6340, 77.4468] },
-    { id: 'c3', title: 'Block A Electrical Socket', location: 'ABESIT Block A - Room 101', status: 'reported', assigned: false, coords: [28.6335, 77.4470] },
-    { id: 'c4', title: 'Canteen Water Purifier', location: 'Main Campus Mess & Canteen', status: 'resolved', assigned: true, coords: [28.6342, 77.4478] }
-  ];
-
-  // Active points: prioritize real database issues, fallback to domain demo points
-  let mapPoints = [];
-  if (relevantIssues.length > 0) {
-    mapPoints = relevantIssues.map(issue => ({
-      ...issue,
-      coords: issue.coords || (issue.latitude && issue.longitude ? [issue.latitude, issue.longitude] : getLocationCoordinates(issue.location))
-    }));
-  } else {
-    mapPoints = domain === 'on-campus' ? demoCampusPoints : demoCityPoints;
-  }
+  const mapPoints = relevantIssues;
 
   // Calculate dynamic counts
   const openCount = mapPoints.filter(p => p.status === 'reported' || p.status === 'open').length;
@@ -93,11 +65,9 @@ export const LiveMapWidget = ({ onExpandMap }) => {
     if (!mapContainerRef.current) return;
 
     if (!mapInstanceRef.current) {
-      const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
-
       const map = L.map(mapContainerRef.current, {
-        center: defaultCenter,
-        zoom: 13,
+        center: [20, 0],
+        zoom: 2,
         zoomControl: false,
         attributionControl: false
       });
@@ -190,12 +160,10 @@ export const LiveMapWidget = ({ onExpandMap }) => {
         const group = L.featureGroup(createdMarkers);
         map.fitBounds(group.getBounds().pad(0.18), { maxZoom: 15 });
       } catch {
-        const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
-        map.setView(defaultCenter, 13);
+        map.setView([20, 0], 2);
       }
     } else {
-      const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
-      map.setView(defaultCenter, 13);
+      map.setView([20, 0], 2);
     }
 
     // Fix map container rendering size
@@ -221,8 +189,7 @@ export const LiveMapWidget = ({ onExpandMap }) => {
         return;
       }
     }
-    const defaultCenter = domain === 'on-campus' ? [28.6335, 77.4470] : CITY_COORDINATES.center;
-    map.setView(defaultCenter, 13);
+    map.setView([20, 0], 2);
   };
 
   return (

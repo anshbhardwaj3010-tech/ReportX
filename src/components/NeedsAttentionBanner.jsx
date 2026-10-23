@@ -4,9 +4,9 @@ import { CATEGORIES } from '../data/mockData';
 import { Sun, AlertTriangle, UserPlus, Clock } from 'lucide-react';
 
 export const NeedsAttentionBanner = ({ onFocusFilter }) => {
-  const { issues, domain, setCurrentView } = useIssues();
+  const { dashboardIssues: issues, domain, setCurrentView } = useIssues();
 
-  const domainIssues = issues.filter(i => !domain || i.domain === domain || domain === 'off-campus');
+  const domainIssues = issues.filter(i => i.domain === domain);
 
   // Compute live attention counts
   const unassignedHigh = domainIssues.filter(i => 
@@ -33,9 +33,9 @@ export const NeedsAttentionBanner = ({ onFocusFilter }) => {
     return hoursElapsed > (slaHours * 0.75) && hoursElapsed <= slaHours;
   });
 
-  const overdueCount = overdueIssues.length || 2;
-  const unassignedCount = unassignedHigh.length || 3;
-  const nearingCount = nearingSlaIssues.length || 1;
+  const overdueCount = overdueIssues.length;
+  const unassignedCount = unassignedHigh.length;
+  const nearingCount = nearingSlaIssues.length;
   const totalAttention = overdueCount + unassignedCount + nearingCount;
 
   return (
@@ -67,7 +67,7 @@ export const NeedsAttentionBanner = ({ onFocusFilter }) => {
                 </span>
               </div>
               <p className="subcard-desc">
-                Every active report still has time on the clock.
+                {overdueCount === 0 ? 'No reports are currently overdue.' : 'These reports have exceeded their target resolution time.'}
               </p>
             </div>
           </div>
@@ -119,7 +119,7 @@ export const NeedsAttentionBanner = ({ onFocusFilter }) => {
                   {nearingCount} nearing SLA breach
                 </span>
                 <span className="subcard-tag" style={{ background: '#fef3c7', color: '#b45309' }}>
-                  Tightest: 2h Remaining
+                  {nearingCount === 0 ? 'No immediate deadline' : 'Approaching deadline'}
                 </span>
               </div>
               <p className="subcard-desc">

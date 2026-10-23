@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useIssues } from '../context/IssueContext';
-import { CATEGORIES, getLocationCoordinates, formatCoords } from '../data/mockData';
 import { 
   Car, Lightbulb, Sparkles, Trash2, ShieldAlert, Droplets, 
   Wrench, MoreHorizontal, UserCheck, Clock, Check
@@ -17,121 +16,39 @@ const CATEGORY_ICON_MAP = {
 
 export const HighPriorityList = ({ onViewAll }) => {
   const { 
-    issues, domain, setSelectedIssue, 
-    assignIssue, getTechnicians, showToast 
+    dashboardIssues: issues, domain, role, setSelectedIssue,
+    assignIssue, getTechnicians, showToast
   } = useIssues();
 
   const [technicians, setTechnicians] = useState([]);
   const [activeDropdownId, setActiveDropdownId] = useState(null);
 
   useEffect(() => {
-    getTechnicians()
-      .then(techs => {
-        if (Array.isArray(techs) && techs.length > 0) {
-          setTechnicians(techs);
-        } else {
-          // Default fallback maintenance crew
-          setTechnicians([
-            { id: 'tech-1', name: 'Carlos Mendoza', department: 'Roads & Infrastructure' },
-            { id: 'tech-2', name: 'Elena Rostova', department: 'Electrical' },
-            { id: 'tech-3', name: 'Marcus Chen', department: 'Sanitation' },
-            { id: 'tech-4', name: 'David Miller', department: 'Plumbing & Safety' }
-          ]);
-        }
-      })
-      .catch(() => {
-        setTechnicians([
-          { id: 'tech-1', name: 'Carlos Mendoza', department: 'Roads & Infrastructure' },
-          { id: 'tech-2', name: 'Elena Rostova', department: 'Electrical' },
-          { id: 'tech-3', name: 'Marcus Chen', department: 'Sanitation' },
-          { id: 'tech-4', name: 'David Miller', department: 'Plumbing & Safety' }
-        ]);
-      });
-  }, []);
+    if (role !== 'admin') return;
+    getTechnicians(domain)
+      .then(setTechnicians)
+      .catch(error => showToast(error.message, 'error'));
+  }, [role, domain, getTechnicians, showToast]);
 
   // Filter issues for current domain, prioritize high/urgent/open issues
-  const relevantIssues = issues.filter(i => !domain || i.domain === domain || domain === 'off-campus');
+  const relevantIssues = issues.filter(i => i.domain === domain);
   
   // High priority issues list
   const highPriorityItems = relevantIssues.filter(i => 
     i.urgency === 'high' || i.urgency === 'critical' || i.status === 'in_progress' || i.status === 'reported'
   );
 
-  // If database has fewer than 5, merge with default operations issues from screenshot
-  const displayItems = [...highPriorityItems];
-  if (displayItems.length < 5) {
-    const seedDefaults = [
-      {
-        id: 'FIX-101',
-        title: 'Pothole on 4th & Main',
-        location: '4th & Main St',
-        category: 'roads',
-        urgency: 'high',
-        status: 'in_progress',
-        timeRemaining: '7h left',
-        assignedTo: 'Carlos Mendoza',
-        coords: [38.7652, -9.1120]
-      },
-      {
-        id: 'FIX-102',
-        title: 'Broken streetlight — Elm St',
-        location: 'Elm St & 3rd Ave',
-        category: 'electrical',
-        urgency: 'medium',
-        status: 'reported',
-        timeRemaining: '2h left',
-        coords: [38.7573, -9.1145]
-      },
-      {
-        id: 'FIX-103',
-        title: 'Graffiti on wall — Park Ave',
-        location: 'Park Ave & 2nd St',
-        category: 'cleanliness',
-        urgency: 'low',
-        status: 'reported',
-        timeRemaining: '5.8d left',
-        coords: [38.7565, -9.1090]
-      },
-      {
-        id: 'FIX-104',
-        title: 'Overflowing bin — Market St',
-        location: 'Market St & Center',
-        category: 'sanitation',
-        urgency: 'medium',
-        status: 'resolved',
-        timeRemaining: 'Completed',
-        assignedTo: 'Marcus Chen',
-        coords: [38.7619, -9.1081]
-      },
-      {
-        id: 'FIX-105',
-        title: 'Damaged sign — Hwy 12',
-        location: 'Hwy 12 Northbound',
-        category: 'safety',
-        urgency: 'high',
-        status: 'in_progress',
-        timeRemaining: '7h left',
-        assignedTo: 'Carlos Mendoza',
-        coords: [38.7652, -9.1120]
-      }
-    ];
-
-    for (const seed of seedDefaults) {
-      if (displayItems.length >= 5) break;
-      if (!displayItems.some(item => item.title === seed.title || item.id === seed.id)) {
-        displayItems.push(seed);
-      }
-    }
-  }
+  const displayItems = highPriorityItems;
 
   const itemsToShow = displayItems.slice(0, 5);
 
   const handleAssignTechnician = async (issueId, tech) => {
     try {
-      await assignIssue(issueId, tech.id);
+      const issue = issues.find((item) => item.id === issueId);
+      await assignIssue(issueId, tech.id, issue?.domain || domain);
       showToast(`Assigned ${tech.name} to ticket #${issueId}`, 'success');
-    } catch {
-      showToast(`Assigned ${tech.name} to ticket #${issueId}`, 'success');
+    } catch (error) {
+      showToast(error.message, 'error');
     }
     setActiveDropdownId(null);
   };
@@ -157,13 +74,17 @@ export const HighPriorityList = ({ onViewAll }) => {
 
       {/* Issues Rows */}
       <div className="priority-issues-list">
+        {itemsToShow.length === 0 && (
+          <p style={{ padding: '1rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+            No active reports need attention.
+          </p>
+        )}
         {itemsToShow.map(issue => {
           const catConfig = CATEGORY_ICON_MAP[issue.category] || {
             icon: Wrench, bg: '#f1f5f9', color: '#64748b'
           };
           const Icon = catConfig.icon;
-          const coords = issue.coords || getLocationCoordinates(issue.location);
-          const coordsText = formatCoords(coords);
+          const locationText = issue.location || 'Location not provided';
 
           const priorityBadgeClass = issue.urgency === 'high' 
             ? 'badge-priority-high' 
@@ -183,7 +104,7 @@ export const HighPriorityList = ({ onViewAll }) => {
               ? 'IN PROGRESS' 
               : 'OPEN';
 
-          const timeLabel = issue.timeRemaining || (issue.status === 'resolved' ? 'Resolved' : '7h left');
+          const timeLabel = issue.status === 'resolved' ? 'Resolved' : 'Active';
 
           return (
             <div key={issue.id} className="priority-issue-row">
@@ -204,7 +125,7 @@ export const HighPriorityList = ({ onViewAll }) => {
                     {issue.title}
                   </div>
                   <div className="issue-coords-text">
-                    {coordsText}
+                    {locationText}
                   </div>
                 </div>
               </div>
@@ -228,7 +149,7 @@ export const HighPriorityList = ({ onViewAll }) => {
 
               {/* Action Dropdown & More Options */}
               <div className="issue-actions-right">
-                <button 
+                {role === 'admin' && <button
                   className="btn-assign-dropdown"
                   onClick={() => setActiveDropdownId(activeDropdownId === issue.id ? null : issue.id)}
                   aria-expanded={activeDropdownId === issue.id}
@@ -237,10 +158,10 @@ export const HighPriorityList = ({ onViewAll }) => {
                   <UserCheck size={13} />
                   <span>{issue.assignedTo ? issue.assignedTo.split(' ')[0] : 'Assign'}</span>
                   <span style={{ fontSize: '0.65rem' }}>▼</span>
-                </button>
+                </button>}
 
                 {/* Technician Picker Popover */}
-                {activeDropdownId === issue.id && (
+                {role === 'admin' && activeDropdownId === issue.id && (
                   <div className="custom-dropdown-popover" style={{ width: '210px' }}>
                     <div style={{ padding: '0.35rem 0.6rem', borderBottom: '1px solid var(--border-light)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-dim)' }}>
                       ASSIGN DISPATCH CREW
@@ -276,7 +197,7 @@ export const HighPriorityList = ({ onViewAll }) => {
 
       {/* Footer */}
       <div className="list-pagination-footer">
-        Showing 1-{itemsToShow.length} of {displayItems.length >= 24 ? displayItems.length : 24} high-priority issues
+        Showing {itemsToShow.length} of {displayItems.length} active reports
       </div>
     </div>
   );

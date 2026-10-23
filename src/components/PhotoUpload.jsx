@@ -30,8 +30,8 @@ export const PhotoUpload = ({ label, value, onChange, onUploadingChange, allowVi
   };
 
   return (
-    <div>
-      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', marginBottom: '0.35rem' }}>{label}</label>
+    <div className="photo-upload">
+      <label className="photo-upload-label">{label}</label>
       {!videoOnly && <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handleFile} style={visuallyHidden} />}
       {!videoOnly && <input ref={galleryInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFile} style={visuallyHidden} />}
       {allowVideo && <input ref={videoInput} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={handleFile} style={visuallyHidden} />}

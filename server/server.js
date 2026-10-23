@@ -90,6 +90,7 @@ const userSchema = new mongoose.Schema({
   collegeName: { type: String, required: true },
   role: { type: String, enum: ['student', 'technician', 'admin'], default: 'student' },
   department: { type: String, default: null },
+  operationDomain: { type: String, enum: ['on-campus', 'off-campus'], default: 'on-campus' },
   staffApproved: { type: Boolean, default: false },
   rewardPoints: { type: Number, default: 0 },
   rewardedIssueIds: { type: [String], default: [] },
@@ -176,6 +177,7 @@ const publicUser = (user) => ({
   collegeName: user.collegeName,
   role: user.role === 'technician' && !user.staffApproved ? 'pending_technician' : user.role,
   department: user.department,
+  operationDomain: user.operationDomain || 'on-campus',
   staffApproved: user.staffApproved,
   rewardPoints: user.rewardPoints || 0,
   verified: user.emailVerified
@@ -303,7 +305,11 @@ const assessIssueEvidence = async ({ title, description, category, domain, locat
         generationConfig: { responseMimeType: 'application/json' }
       })
     });
-    if (!response.ok) throw new Error('AI provider request failed');
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null);
+      const providerMessage = String(errorPayload?.error?.message || '').slice(0, 300);
+      throw new Error(`Gemini returned HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : '.'}`);
+    }
     const payload = await response.json();
     const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
     const result = JSON.parse(text || '{}');
@@ -325,8 +331,11 @@ const sendEmail = async ({ to, subject, html }) => {
   await transporter.sendMail({ from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to, subject, html });
 };
 
-const sendVerificationEmail = async (user, token) => {
-  const verificationUrl = new URL('/', publicAppUrl);
+const sendVerificationEmail = async (user, token, requestOrigin) => {
+  const appOrigin = requestOrigin && (clientOrigins.includes(requestOrigin) || isLocalDevelopmentOrigin(requestOrigin))
+    ? requestOrigin
+    : publicAppUrl;
+  const verificationUrl = new URL('/', appOrigin);
   verificationUrl.searchParams.set('verifyToken', token);
   await sendEmail({
     to: user.email,
@@ -339,27 +348,29 @@ const sendWelcomeEmail = (user) => sendEmail({
   to: user.email,
   subject: user.role === 'technician' ? 'Your ReportX maintenance application is verified' : 'Your ReportX account is verified',
   html: user.role === 'technician'
-    ? `<p>Hello ${escapeHtml(user.name)},</p><p>Your email is verified. Your maintenance staff application is waiting for approval from the maintenance office.</p>`
+    ? `<p>Hello ${escapeHtml(user.name)},</p><p>Your email is verified. Your ${escapeHtml(user.operationDomain === 'off-campus' ? 'City Operations' : 'Campus Operations')} maintenance staff application is waiting for approval from the maintenance office.</p>`
     : `<p>Hello ${escapeHtml(user.name)},</p><p>Your email is verified and your ReportX account is ready to use.</p>`
 });
 
 const sendStaffApplicationEmail = (user) => maintenanceEmail ? sendEmail({
   to: maintenanceEmail,
   subject: `Maintenance staff application: ${user.name}`,
-  html: `<p>A maintenance staff applicant verified their email.</p><p>Name: ${escapeHtml(user.name)}<br>Email: ${escapeHtml(user.email)}<br>Employee ID: ${escapeHtml(user.collegeId)}<br>Department: ${escapeHtml(user.department)}</p><p>Review and approve this application in the ReportX admin dashboard.</p>`
+  html: `<p>A maintenance staff applicant verified their email.</p><p>Name: ${escapeHtml(user.name)}<br>Email: ${escapeHtml(user.email)}<br>Employee ID: ${escapeHtml(user.collegeId)}<br>Operation: ${escapeHtml(user.operationDomain === 'off-campus' ? 'City Operations' : 'Campus Operations')}<br>Department: ${escapeHtml(user.department)}</p><p>Review and approve this application in the ReportX admin dashboard.</p>`
 }) : Promise.resolve();
 
 const sendIssueReceipt = async (issue) => {
   const emails = [sendEmail({
     to: issue.reportedByEmail,
     subject: `ReportX issue received: ${issue.ticketId}`,
-    html: `<p>Hello ${escapeHtml(issue.reportedByName)},</p><p>Your report <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong> was received.</p><p>Location: ${escapeHtml(issue.location)}<br>Status: ${escapeHtml(issue.status)}</p>`
+    html: `<p>Hello ${escapeHtml(issue.reportedByName)},</p><p>Your report <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong> was received.</p><p>Location: ${escapeHtml(issue.location)}<br>Status: ${escapeHtml(issue.status)}</p>${issue.isGenuine === null ? '<p>AI screening was unavailable, so the maintenance office will manually review your report before it can be assigned.</p>' : ''}`
   })];
   if (maintenanceEmail) {
     emails.push(sendEmail({
       to: maintenanceEmail,
-      subject: `New issue awaiting assignment: ${issue.ticketId}`,
-      html: `<p>A new issue needs maintenance-office review.</p><p>Ticket: ${escapeHtml(issue.ticketId)}<br>Title: ${escapeHtml(issue.title)}<br>Category: ${escapeHtml(issue.category)}<br>Location: ${escapeHtml(issue.location)}<br>Urgency: ${escapeHtml(issue.urgency)}<br>Reported by: ${escapeHtml(issue.reportedByName)} (${escapeHtml(issue.reportedByEmail)})</p><p>Assign an approved field employee in the ReportX admin dashboard.</p>`
+      subject: issue.isGenuine === null
+        ? `Manual review required: ${issue.ticketId}`
+        : `New verified issue: ${issue.ticketId}`,
+      html: `<p>${issue.isGenuine === null ? 'AI screening was unavailable. This report must be manually reviewed before it can be assigned.' : 'A new report passed AI screening and is ready for assignment.'}</p><p>Operation: ${escapeHtml(issue.domain === 'off-campus' ? 'City Operations' : 'Campus Operations')}<br>Ticket: ${escapeHtml(issue.ticketId)}<br>Title: ${escapeHtml(issue.title)}<br>Category: ${escapeHtml(issue.category)}<br>Location: ${escapeHtml(issue.location)}<br>Urgency: ${escapeHtml(issue.urgency)}<br>Reported by: ${escapeHtml(issue.reportedByName)} (${escapeHtml(issue.reportedByEmail)})</p><p>${issue.isGenuine === null ? 'Review it in the matching ReportX operation dashboard; approve it before assigning work.' : 'Assign an approved field employee in the matching ReportX operation dashboard.'}</p>`
     }));
   } else {
     console.warn('MAINTENANCE_EMAIL is not configured; report was not emailed to the maintenance office.');
@@ -380,7 +391,7 @@ const sendAssignmentEmail = async (issue, technician) => {
     sendEmail({
       to: technician.email,
       subject: `Work order assigned: ${issue.ticketId}`,
-      html: `<p>Hello ${escapeHtml(technician.name)},</p><p>You have been assigned <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong>.</p><p>Department: ${escapeHtml(technician.department)}<br>Location: ${escapeHtml(issue.location)}<br>Urgency: ${escapeHtml(issue.urgency)}</p><p>Sign in to ReportX to track and update the work order.</p>`
+      html: `<p>Hello ${escapeHtml(technician.name)},</p><p>You have been assigned <strong>${escapeHtml(issue.ticketId)}: ${escapeHtml(issue.title)}</strong>.</p><p>Operation: ${escapeHtml(issue.domain === 'off-campus' ? 'City Operations' : 'Campus Operations')}<br>Department: ${escapeHtml(technician.department)}<br>Location: ${escapeHtml(issue.location)}<br>Urgency: ${escapeHtml(issue.urgency)}</p><p>Sign in to ReportX to track and update the work order.</p>`
     }),
     sendEmail({
       to: issue.reportedByEmail,
@@ -508,13 +519,23 @@ app.post('/api/uploads', requireAuth, mediaUpload.single('media'), asyncRoute(as
   });
 }));
 
-app.get('/api/admin/staff-applications', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  const applicants = await User.find({ role: 'technician', staffApproved: false, emailVerified: true }).sort({ createdAt: 1 });
+const getOperationDomain = (value) => ['on-campus', 'off-campus'].includes(value) ? value : null;
+
+app.get('/api/admin/staff-applications', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const operationDomain = getOperationDomain(req.query.domain);
+  if (!operationDomain) return res.status(400).json({ error: 'Select a valid operation domain.' });
+  const applicants = await User.find({
+    role: 'technician', staffApproved: false, emailVerified: true, operationDomain
+  }).sort({ createdAt: 1 });
   res.json(applicants.map(publicUser));
 }));
 
-app.get('/api/admin/technicians', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  const technicians = await User.find({ role: 'technician', staffApproved: true, emailVerified: true }).sort({ name: 1 });
+app.get('/api/admin/technicians', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const operationDomain = getOperationDomain(req.query.domain);
+  if (!operationDomain) return res.status(400).json({ error: 'Select a valid operation domain.' });
+  const technicians = await User.find({
+    role: 'technician', staffApproved: true, emailVerified: true, operationDomain
+  }).sort({ name: 1 });
   res.json(technicians.map(publicUser));
 }));
 
@@ -527,8 +548,10 @@ app.get('/api/admin/issues/pending-review', requireAuth, requireAdmin, asyncRout
 }));
 
 app.put('/api/admin/staff-applications/:userId/approve', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const operationDomain = getOperationDomain(req.query.domain);
+  if (!operationDomain) return res.status(400).json({ error: 'Select a valid operation domain.' });
   const technician = await User.findOneAndUpdate(
-    { _id: req.params.userId, role: 'technician', staffApproved: false, emailVerified: true },
+    { _id: req.params.userId, role: 'technician', staffApproved: false, emailVerified: true, operationDomain },
     { $set: { staffApproved: true } },
     { new: true }
   );
@@ -543,6 +566,7 @@ app.put('/api/admin/staff-applications/:userId/approve', requireAuth, requireAdm
 
 app.post('/api/auth/signup', asyncRoute(async (req, res) => {
   const { name, email, password, collegeId, collegeName, accountType = 'student', department } = req.body;
+  const operationDomain = req.body.operationDomain || 'on-campus';
   const isMaintenanceStaff = accountType === 'maintenance';
   if (!['student', 'maintenance'].includes(accountType)) {
     return res.status(400).json({ error: 'Choose either student or maintenance staff signup.' });
@@ -552,6 +576,9 @@ app.post('/api/auth/signup', asyncRoute(async (req, res) => {
   }
   if (isMaintenanceStaff && !['general', 'electrical', 'plumbing', 'appliance', 'ro-water', 'it-wifi', 'cleanliness', 'furniture', 'safety'].includes(department)) {
     return res.status(400).json({ error: 'Select a valid maintenance department.' });
+  }
+  if (isMaintenanceStaff && !getOperationDomain(operationDomain)) {
+    return res.status(400).json({ error: 'Select City or Campus operations for your employee account.' });
   }
   if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) {
     return res.status(400).json({ error: 'Enter a valid email and a password of at least 8 characters.' });
@@ -566,6 +593,7 @@ app.post('/api/auth/signup', asyncRoute(async (req, res) => {
     collegeId: collegeId.trim(), collegeName: collegeName.trim(),
     role: isMaintenanceStaff ? 'technician' : 'student',
     department: isMaintenanceStaff ? department : null,
+    operationDomain: isMaintenanceStaff ? operationDomain : 'on-campus',
     staffApproved: !isMaintenanceStaff,
     verificationTokenHash: crypto.createHash('sha256').update(verificationToken).digest('hex'),
     verificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -579,7 +607,7 @@ app.post('/api/auth/signup', asyncRoute(async (req, res) => {
     throw error;
   }
   try {
-    await sendVerificationEmail(user, verificationToken);
+    await sendVerificationEmail(user, verificationToken, req.get('origin'));
   } catch (error) {
     await User.deleteOne({ _id: user._id });
     console.error('Verification email failed:', error.message);
@@ -604,7 +632,7 @@ app.post('/api/auth/resend-verification', asyncRoute(async (req, res) => {
   user.verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   user.verificationLastSentAt = new Date();
   await user.save();
-  await sendVerificationEmail(user, token);
+  await sendVerificationEmail(user, token, req.get('origin'));
   res.json({ message: genericMessage });
 }));
 
@@ -645,14 +673,23 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => res.json({ user: publicUser(req.user) }));
 
+app.get('/api/issues/mine', requireAuth, asyncRoute(async (req, res) => {
+  const issues = await Issue.find({ reportedByUser: req.user._id }).sort({ createdAt: -1 });
+  res.json(issues.map(publicIssue));
+}));
+
 app.get('/api/issues', optionalAuth, asyncRoute(async (req, res) => {
   let filter = {};
   if (req.user?.role === 'technician') {
-    filter = { assignedToUser: req.user._id, isGenuine: true };
+    filter = {
+      assignedToUser: req.user._id,
+      isGenuine: true,
+      domain: req.user.operationDomain || 'on-campus'
+    };
   } else if (req.user?.role !== 'admin') {
     filter = req.user
-      ? { $or: [{ isGenuine: { $ne: false } }, { reportedByUser: req.user._id }] }
-      : { isGenuine: { $ne: false } };
+      ? { $or: [{ isGenuine: true }, { reportedByUser: req.user._id }] }
+      : { isGenuine: true };
   }
   const issues = await Issue.find(filter).sort({ createdAt: -1 });
   res.json(issues.map(publicIssue));
@@ -660,6 +697,7 @@ app.get('/api/issues', optionalAuth, asyncRoute(async (req, res) => {
 
 app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
   const { title, description, category, domain, location, urgency, imageUrl, videoUrl, latitude, longitude, coords } = req.body;
+  if (!getOperationDomain(domain)) return res.status(400).json({ error: 'Select City or Campus operations for this report.' });
   const required = [title, description, category, domain, location, urgency];
   if (!required.every((value) => typeof value === 'string' && value.trim())) {
     return res.status(400).json({ error: 'Complete all required issue fields.' });
@@ -698,16 +736,14 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
     return res.status(409).json({ error: 'This exact video was already used on another report. Record a new video showing the current issue.' });
   }
   const aiAssessment = await assessIssueEvidence({ title, description, category, domain, location, imageUrl, videoUrl });
+  const needsManualReview = aiAssessment.verdict === 'unavailable';
   const aiVerified = aiAssessment.verdict === 'genuine'
     && aiAssessment.matchesDescription
     && aiAssessment.flags.length === 0
     && aiAssessment.confidence >= 90;
-  if (!aiVerified) {
-    const status = aiAssessment.verdict === 'unavailable' ? 503 : 422;
-    return res.status(status).json({
-      error: aiAssessment.verdict === 'unavailable'
-        ? 'AI screening is unavailable, so this report was not submitted.'
-        : 'AI could not verify this evidence. Add a clear, original video showing the issue and submit again.',
+  if (!aiVerified && !needsManualReview) {
+    return res.status(422).json({
+      error: 'AI could not verify this evidence. Add a clear, original video showing the issue and submit again.',
       assessment: aiAssessment
     });
   }
@@ -719,9 +755,9 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
     beforeImageUrl: imageUrl,
     aiAssessment,
     evidenceHashes: [videoHash],
-    isGenuine: true,
-    reviewSource: 'ai',
-    reviewedAt: aiAssessment.checkedAt,
+    isGenuine: aiVerified ? true : null,
+    reviewSource: aiVerified ? 'ai' : null,
+    reviewedAt: aiVerified ? aiAssessment.checkedAt : null,
     reportedByUser: req.user._id,
     reportedByEmail: req.user.email,
     reportedByName: req.user.name,
@@ -733,14 +769,21 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
       type: 'system'
     }, {
       id: crypto.randomUUID(),
-      text: `AI screening verified this report (${aiAssessment.confidence}% confidence): ${aiAssessment.summary}`,
+      text: aiVerified
+        ? `AI screening verified this report (${aiAssessment.confidence}% confidence): ${aiAssessment.summary}`
+        : `AI screening was unavailable. This report is waiting for manual review: ${aiAssessment.summary}`,
       timestamp: aiAssessment.checkedAt,
-      type: 'ai-review'
+      type: aiVerified ? 'ai-review' : 'review'
     }]
   });
   emailTask(sendIssueReceipt(issue));
-  emailTask(sendReviewDecisionEmail(issue));
-  res.status(201).json({ issue: publicIssue(issue) });
+  if (aiVerified) emailTask(sendReviewDecisionEmail(issue));
+  res.status(201).json({
+    issue: publicIssue(issue),
+    message: needsManualReview
+      ? 'Report submitted and queued for manual review because AI screening is unavailable.'
+      : 'Report submitted and verified.'
+  });
 }));
 
 app.put('/api/issues/:ticketId/review', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
@@ -789,6 +832,8 @@ app.put('/api/issues/:ticketId/review', requireAuth, requireAdmin, asyncRoute(as
 }));
 
 app.put('/api/issues/:ticketId/assign', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const requestedDomain = getOperationDomain(req.body.operationDomain);
+  if (!requestedDomain) return res.status(400).json({ error: 'Select a valid operation domain.' });
   const technician = await User.findOne({
     _id: req.body.technicianId,
     role: 'technician',
@@ -799,7 +844,13 @@ app.put('/api/issues/:ticketId/assign', requireAuth, requireAdmin, asyncRoute(as
 
   const issue = await Issue.findOne({ ticketId: req.params.ticketId });
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  if (issue.domain !== requestedDomain) {
+    return res.status(409).json({ error: 'This report belongs to the other operation domain.' });
+  }
   if (issue.isGenuine !== true) return res.status(409).json({ error: 'Verify this report as genuine before assigning it.' });
+  if (technician.operationDomain !== issue.domain) {
+    return res.status(400).json({ error: 'Choose an employee assigned to this report’s City or Campus operation.' });
+  }
   if (technician.department !== 'general' && technician.department !== issue.category) {
     return res.status(400).json({ error: 'Choose a technician from the matching department or general maintenance.' });
   }
@@ -839,6 +890,9 @@ app.put('/api/issues/:ticketId/status', requireAuth, requireResolver, asyncRoute
   if (issue.isGenuine !== true) return res.status(409).json({ error: 'The maintenance office must verify this report before work can begin.' });
   if (req.user.role === 'technician' && (!req.user.staffApproved || !issue.assignedToUser?.equals(req.user._id))) {
     return res.status(403).json({ error: 'This work order is not assigned to your account.' });
+  }
+  if (req.user.role === 'technician' && issue.domain !== (req.user.operationDomain || 'on-campus')) {
+    return res.status(403).json({ error: 'This work order belongs to a different operation scope.' });
   }
   if (status === 'in_progress' && issue.status !== 'reported') {
     return res.status(409).json({ error: 'Only a reported work order can be started.' });
@@ -935,6 +989,34 @@ if (!maintenanceEmail) {
 }
 
 mongoose.connect(process.env.MONGO_URI)
+  .then(() => {
+    return User.updateMany(
+      { role: 'technician', operationDomain: { $in: [null, ''] } },
+      { $set: { operationDomain: 'on-campus' } }
+    );
+  })
+  .then(async () => {
+    const technicians = await User.find({ role: 'technician' }).select('_id operationDomain');
+    for (const technician of technicians) {
+      const operationDomain = technician.operationDomain || 'on-campus';
+      await Issue.updateMany({
+        assignedToUser: technician._id,
+        domain: { $ne: operationDomain },
+        status: { $in: ['reported', 'in_progress'] }
+      }, {
+        $set: { status: 'reported', assignedTo: 'Unassigned', assignedToUser: null },
+        $unset: { assignedToEmail: 1, assignedDepartment: 1 },
+        $push: {
+          activityLog: {
+            id: crypto.randomUUID(),
+            text: 'Reopened as unassigned during City/Campus operation separation.',
+            timestamp: new Date(),
+            type: 'assignment'
+          }
+        }
+      });
+    }
+  })
   .then(() => {
     app.listen(port, '0.0.0.0', () => console.log(`ReportX API listening on port ${port}`));
   })

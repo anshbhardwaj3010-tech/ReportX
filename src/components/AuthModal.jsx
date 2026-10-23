@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { AlertCircle, CheckCircle2, GraduationCap, Lock, Mail, ShieldCheck, User, X } from 'lucide-react';
+import './AuthModal.css';
 
 const DELHI_NCR_COLLEGES = [
   'ABES Institute of Technology (ABESIT), Ghaziabad',
@@ -37,13 +38,16 @@ export const AuthModal = () => {
   const [collegeId, setCollegeId] = useState('');
   const [selectedCollege, setSelectedCollege] = useState(DELHI_NCR_COLLEGES[0]);
   const [department, setDepartment] = useState('general');
+  const [operationDomain, setOperationDomain] = useState('on-campus');
   const [errorMsg, setErrorMsg] = useState('');
+  const [existingAccount, setExistingAccount] = useState(false);
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   React.useEffect(() => {
     setIsSignupTab(authModalMode === 'signup');
     setErrorMsg('');
+    setExistingAccount(false);
     setNotice('');
   }, [authModalMode, isAuthModalOpen]);
 
@@ -52,6 +56,7 @@ export const AuthModal = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setErrorMsg('');
+    setExistingAccount(false);
     setNotice('');
     setIsSubmitting(true);
     try {
@@ -60,7 +65,7 @@ export const AuthModal = () => {
         if (collegeId.trim().length < 5) throw new Error(`${accountType === 'student' ? 'College' : 'Employee'} ID must contain at least 5 characters.`);
         const result = await signup({
           name: name.trim(), email, password, collegeId: collegeId.trim(), collegeName: selectedCollege,
-          accountType, department
+          accountType, department, operationDomain
         });
         setNotice(result.message);
       } else {
@@ -68,6 +73,7 @@ export const AuthModal = () => {
       }
     } catch (error) {
       setErrorMsg(error.message);
+      setExistingAccount(error.status === 409);
     } finally {
       setIsSubmitting(false);
     }
@@ -88,32 +94,31 @@ export const AuthModal = () => {
 
   return (
     <div className="modal-overlay" onClick={() => setIsAuthModalOpen(false)}>
-      <div className="modal-content" onClick={(event) => event.stopPropagation()} style={{ maxWidth: '520px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+      <div className="modal-content auth-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="auth-modal-header">
           <div>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.4rem', fontWeight: 800 }}>
+            <div className="auth-brand-mark"><ShieldCheck size={19} /></div>
+            <h2 className="auth-title">
               {isSignupTab ? 'Create your account' : 'Sign in to ReportX'}
             </h2>
-            <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+            <p className="auth-subtitle">
               {isSignupTab ? accountType === 'maintenance' ? 'Maintenance staff accounts require office approval.' : 'Verify your email to activate your account.' : 'Use your verified email address.'}
             </p>
           </div>
-          <button onClick={() => setIsAuthModalOpen(false)} aria-label="Close" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+          <button className="auth-close" onClick={() => setIsAuthModalOpen(false)} aria-label="Close">
             <X size={22} />
           </button>
         </div>
 
-        <div style={{ display: 'flex', background: 'rgba(15, 23, 42, 0.8)', padding: '0.25rem', borderRadius: '0.5rem', border: '1px solid rgba(255, 255, 255, 0.08)', marginBottom: '1.25rem' }}>
+        <div className="auth-tabs" role="tablist" aria-label="Account access">
           {[false, true].map((signupMode) => (
             <button
               key={String(signupMode)}
               type="button"
-              onClick={() => { setIsSignupTab(signupMode); setErrorMsg(''); setNotice(''); }}
-              style={{
-                flex: 1, padding: '0.5rem', borderRadius: '0.4rem', border: 'none', fontWeight: 700,
-                fontSize: '0.85rem', cursor: 'pointer', background: isSignupTab === signupMode ? 'var(--primary)' : 'transparent',
-                color: isSignupTab === signupMode ? 'white' : '#94a3b8'
-              }}
+              role="tab"
+              aria-selected={isSignupTab === signupMode}
+              className={`auth-tab${isSignupTab === signupMode ? ' is-active' : ''}`}
+              onClick={() => { setIsSignupTab(signupMode); setErrorMsg(''); setExistingAccount(false); setNotice(''); }}
             >
               {signupMode ? 'Create account' : 'Sign in'}
             </button>
@@ -121,94 +126,102 @@ export const AuthModal = () => {
         </div>
 
         {errorMsg && (
-          <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', padding: '0.6rem 0.85rem', borderRadius: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.85rem' }}>
+          <div className="auth-message auth-message-error" role="alert">
             <AlertCircle size={16} /> <span>{errorMsg}</span>
           </div>
         )}
         {notice && (
-          <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', padding: '0.6rem 0.85rem', borderRadius: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.85rem' }}>
+          <div className="auth-message auth-message-success" role="status">
             <CheckCircle2 size={16} /> <span>{notice}</span>
           </div>
         )}
+        {existingAccount && (
+          <button
+            type="button"
+            className="auth-existing-account"
+            onClick={() => { setIsSignupTab(false); setExistingAccount(false); setErrorMsg(''); }}
+          >
+            Sign in with this email instead
+          </button>
+        )}
         {isSignupTab && (
-          <button type="button" disabled={isSubmitting || !email} onClick={handleResendVerification} className="btn-secondary" style={{ justifyContent: 'center', marginBottom: '0.85rem' }}>
+          <button type="button" disabled={isSubmitting || !email} onClick={handleResendVerification} className="auth-resend">
             {isSubmitting ? 'Sending...' : 'Resend verification email'}
           </button>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        <form onSubmit={handleSubmit} className="auth-form">
           {isSignupTab && <>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div className="auth-account-types">
               {[
                 { id: 'student', label: 'Student' },
                 { id: 'maintenance', label: 'Maintenance staff' }
               ].map((option) => (
-                <button key={option.id} type="button" onClick={() => setAccountType(option.id)} className={accountType === option.id ? 'btn-primary' : 'btn-secondary'} style={{ flex: 1, justifyContent: 'center', padding: '0.65rem 0.5rem' }}>
+                <button key={option.id} type="button" onClick={() => setAccountType(option.id)} className={`auth-account-type${accountType === option.id ? ' is-active' : ''}`} aria-pressed={accountType === option.id}>
                   {option.label}
                 </button>
               ))}
             </div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+            <label className="auth-label">
               FULL NAME
-              <span style={{ position: 'relative', display: 'block', marginTop: '0.25rem' }}>
-                <User size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input required value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Your name" style={inputStyle} />
+              <span className="auth-input-wrap">
+                <User size={16} className="auth-input-icon" />
+                <input required value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Your name" className="auth-input" />
               </span>
             </label>
-            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+            <label className="auth-label">
               COLLEGE
-              <select value={selectedCollege} onChange={(event) => setSelectedCollege(event.target.value)} style={{ ...inputStyle, paddingLeft: '0.85rem' }}>
+              <select value={selectedCollege} onChange={(event) => setSelectedCollege(event.target.value)} className="auth-input auth-select">
                 {DELHI_NCR_COLLEGES.map((college) => <option key={college} value={college}>{college}</option>)}
               </select>
             </label>
-            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+            <label className="auth-label">
               {accountType === 'student' ? 'COLLEGE ID' : 'EMPLOYEE ID'}
-              <span style={{ position: 'relative', display: 'block', marginTop: '0.25rem' }}>
-                <GraduationCap size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input required value={collegeId} onChange={(event) => setCollegeId(event.target.value)} autoComplete="off" placeholder={accountType === 'student' ? 'Student / roll number' : 'Maintenance employee ID'} style={inputStyle} />
+              <span className="auth-input-wrap">
+                <GraduationCap size={16} className="auth-input-icon" />
+                <input required value={collegeId} onChange={(event) => setCollegeId(event.target.value)} autoComplete="off" placeholder={accountType === 'student' ? 'Student / roll number' : 'Maintenance employee ID'} className="auth-input" />
               </span>
             </label>
             {accountType === 'maintenance' && (
-              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
-                MAINTENANCE DEPARTMENT
-                <select value={department} onChange={(event) => setDepartment(event.target.value)} style={{ ...inputStyle, paddingLeft: '0.85rem' }}>
-                  {MAINTENANCE_DEPARTMENTS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+              <>
+                <label className="auth-label">
+                  OPERATION SCOPE
+                  <select value={operationDomain} onChange={(event) => setOperationDomain(event.target.value)} className="auth-input auth-select">
+                    <option value="on-campus">Campus Operations</option>
+                    <option value="off-campus">City Operations</option>
+                  </select>
+                  <small className="auth-help-text">Your approved account will only receive work orders for this operation.</small>
+                </label>
+                <label className="auth-label">
+                  MAINTENANCE DEPARTMENT
+                  <select value={department} onChange={(event) => setDepartment(event.target.value)} className="auth-input auth-select">
+                    {MAINTENANCE_DEPARTMENTS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </label>
+              </>
             )}
           </>}
 
-          <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+          <label className="auth-label">
             EMAIL ADDRESS
-            <span style={{ position: 'relative', display: 'block', marginTop: '0.25rem' }}>
-              <Mail size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-              <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" style={inputStyle} />
+            <span className="auth-input-wrap">
+              <Mail size={16} className="auth-input-icon" />
+              <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" className="auth-input" />
             </span>
           </label>
-          <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+          <label className="auth-label">
             PASSWORD
-            <span style={{ position: 'relative', display: 'block', marginTop: '0.25rem' }}>
-              <Lock size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-              <input required type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={isSignupTab ? 'new-password' : 'current-password'} placeholder="At least 8 characters" style={inputStyle} />
+            <span className="auth-input-wrap">
+              <Lock size={16} className="auth-input-icon" />
+              <input required type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={isSignupTab ? 'new-password' : 'current-password'} placeholder="At least 8 characters" className="auth-input" />
             </span>
           </label>
-          <button disabled={isSubmitting} type="submit" className="btn-primary" style={{ marginTop: '0.5rem', justifyContent: 'center' }}>
-            <ShieldCheck size={16} />
+          <button disabled={isSubmitting} type="submit" className="auth-submit">
+            {isSubmitting ? <span className="auth-spinner" aria-hidden="true" /> : <ShieldCheck size={17} />}
             <span>{isSubmitting ? 'Please wait...' : isSignupTab ? 'Create account and send verification' : 'Sign in'}</span>
           </button>
         </form>
       </div>
     </div>
   );
-};
-
-const inputStyle = {
-  width: '100%',
-  background: 'rgba(15, 23, 42, 0.8)',
-  border: '1px solid rgba(255, 255, 255, 0.12)',
-  borderRadius: '0.5rem',
-  padding: '0.6rem 0.85rem 0.6rem 2.2rem',
-  color: 'white',
-  fontSize: '0.85rem',
-  outline: 'none'
 };

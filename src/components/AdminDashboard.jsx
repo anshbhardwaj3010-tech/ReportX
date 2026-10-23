@@ -1,11 +1,13 @@
 import React, { useEffect, useEffectEvent, useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { CATEGORIES } from '../data/mockData';
-import { CheckCircle2, Download, Layers } from 'lucide-react';
+import { CheckCircle2, Download, Layers, ClipboardCheck, Users, UserRoundCheck, ShieldAlert, MapPin } from 'lucide-react';
+import { LiveMapWidget } from './LiveMapWidget';
+import './AdminDashboard.css';
 
 export const AdminDashboard = () => {
   const {
-    issues, domain, showToast,
+    issues, domain, setCurrentView, showToast,
     getStaffApplications, getTechnicians, getPendingIssueReviews,
     approveStaffApplication, assignIssue, reviewIssue
   } = useIssues();
@@ -16,6 +18,8 @@ export const AdminDashboard = () => {
   const [rejectionReasons, setRejectionReasons] = useState({});
 
   const domainIssues = issues.filter(i => i.domain === domain);
+  const domainReviews = pendingReviews.filter((issue) => issue.domain === domain);
+  const approvedEmployees = technicians;
   const totalCount = domainIssues.length;
   const resolvedCount = domainIssues.filter(i => i.status === 'resolved').length;
   const inProgressCount = domainIssues.filter(i => i.status === 'in_progress').length;
@@ -26,7 +30,7 @@ export const AdminDashboard = () => {
   const refreshDispatchData = async () => {
     try {
       const [applications, employees, reviews] = await Promise.all([
-        getStaffApplications(), getTechnicians(), getPendingIssueReviews()
+        getStaffApplications(domain), getTechnicians(domain), getPendingIssueReviews()
       ]);
       setStaffApplications(applications);
       setTechnicians(employees);
@@ -41,11 +45,11 @@ export const AdminDashboard = () => {
   useEffect(() => {
     const refreshTimer = window.setTimeout(refreshInitially, 0);
     return () => window.clearTimeout(refreshTimer);
-  }, []);
+  }, [domain]);
 
   const handleApprove = async (userId) => {
     try {
-      await approveStaffApplication(userId);
+      await approveStaffApplication(userId, domain);
       showToast('Maintenance employee approved.', 'success');
       await refreshDispatchData();
     } catch (error) {
@@ -57,7 +61,7 @@ export const AdminDashboard = () => {
     const technicianId = selectedTechnicians[issue.id] || issue.assignedToUser;
     if (!technicianId) return;
     try {
-      await assignIssue(issue.id, technicianId);
+      await assignIssue(issue.id, technicianId, domain);
       showToast(`Issue ${issue.id} assigned.`, 'success');
       await refreshDispatchData();
     } catch (error) {
@@ -108,169 +112,211 @@ export const AdminDashboard = () => {
   };
 
   return (
-    <div id="maintenance-office-dashboard" style={{ marginTop: '2.5rem', scrollMarginTop: '1rem' }}>
-      <div className="glass-card" style={{ padding: '2rem' }}>
+    <div id="maintenance-office-dashboard" className="admin-dashboard">
+      <div className="glass-card admin-dashboard-shell">
         {/* Header & Export Button */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div className="admin-hero">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.4rem', fontWeight: 800 }}>
-                🏛️ Executive Admin & SLA Analytics Dashboard
+            <div className="admin-hero-title">
+              <span className="admin-hero-icon"><ClipboardCheck size={21} /></span>
+              <h2>
+                {domain === 'off-campus' ? 'City Operations Admin' : 'Campus Operations Admin'}
               </h2>
-              <span style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: '9999px' }}>
-                EXECUTIVE DEAN VIEW
+              <span className="admin-role-badge">
+                ADMIN
               </span>
             </div>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-              Real-time Service Level Agreement (SLA) metrics, category breakdown, and exportable digital audit reports
+            <p className="admin-hero-copy">
+              Review {domain === 'off-campus' ? 'city' : 'campus'} reports, approve {domain === 'off-campus' ? 'city' : 'campus'} employees, and dispatch verified work to the right team.
             </p>
           </div>
 
-          <button className="btn-primary" onClick={handleExportCSV} style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+          <button className="btn-primary admin-export" onClick={handleExportCSV}>
             <Download size={16} />
-            <span>Export CSV Audit Report</span>
+            <span>Export report</span>
           </button>
         </div>
 
-        <section style={{ marginBottom: '2rem', padding: '1.25rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.75rem', background: 'rgba(15,23,42,0.5)' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '0.35rem' }}>Maintenance office dispatch</h3>
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1rem' }}>Review verified staff applications, approve employees, and route reports to the correct department.</p>
+        {domain === 'off-campus' && (
+          <section className="admin-city-map">
+            <div className="admin-city-map-heading">
+              <div>
+                <h3><MapPin size={18} /> City operations map</h3>
+                <p>Explore city reports with available location coordinates.</p>
+              </div>
+              <button className="admin-map-link" onClick={() => setCurrentView('map')}>Open full map</button>
+            </div>
+            <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
+          </section>
+        )}
 
-          <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: '#a5b4fc', marginBottom: '0.6rem' }}>Staff awaiting approval ({staffApplications.length})</h4>
+        <section className="admin-dispatch">
+          <div className="admin-dispatch-heading">
+            <div className="admin-dispatch-icon"><ClipboardCheck size={19} /></div>
+            <div>
+              <h3>Maintenance office dispatch</h3>
+              <p>Review {domain === 'off-campus' ? 'city' : 'campus'} staff applications and route verified reports to the correct department.</p>
+            </div>
+          </div>
+
+          <h4 className="admin-section-title staff-title"><Users size={16} /> Staff awaiting approval <span>{staffApplications.length}</span></h4>
           {staffApplications.length === 0 ? (
-            <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '1rem' }}>No verified applications are waiting.</p>
+            <p className="admin-empty-state">No verified applications are waiting.</p>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.65rem', marginBottom: '1rem' }}>
+            <div className="admin-staff-grid">
               {staffApplications.map((applicant) => (
-                <div key={applicant.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem' }}>
+                <div key={applicant.id} className="admin-staff-card">
                   <div style={{ minWidth: 0 }}>
                     <strong>{applicant.name}</strong>
-                    <p style={{ color: '#94a3b8', fontSize: '0.75rem', overflowWrap: 'anywhere' }}>{applicant.email}</p>
-                    <span style={{ color: '#34d399', fontSize: '0.75rem' }}>{departmentName(applicant.department)} · ID {applicant.collegeId}</span>
+                    <p className="admin-muted-text">{applicant.email}</p>
+                    <span className="admin-staff-department">{departmentName(applicant.department)} · ID {applicant.collegeId}</span>
                   </div>
-                  <button className="btn-primary" onClick={() => handleApprove(applicant.id)} style={{ padding: '0.5rem 0.75rem', flexShrink: 0 }}>Approve</button>
+                  <button className="btn-primary admin-approve" onClick={() => handleApprove(applicant.id)}><UserRoundCheck size={15} /> Approve</button>
                 </div>
               ))}
             </div>
           )}
 
-          <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: '#fbbf24', margin: '1.25rem 0 0.6rem' }}>Reports needing genuineness review ({pendingReviews.length})</h4>
-          <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.65rem' }}>AI clears high-confidence reports and flags suspicious evidence. Review uncertain or flagged cases here; AI screening is not proof of authenticity.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1rem' }}>
-            {pendingReviews.map((issue) => (
-              <div key={issue.id} style={{ display: 'grid', gridTemplateColumns: issue.beforeImageUrl || issue.videoUrl ? 'minmax(0, 1fr) minmax(110px, 180px)' : '1fr', gap: '0.75rem', padding: '0.8rem', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '0.5rem' }}>
-                <div style={{ minWidth: 0 }}>
-                  <strong>#{issue.id} · {issue.title}</strong>
-                  <p style={{ color: '#cbd5e1', fontSize: '0.8rem', marginTop: '0.25rem' }}>{issue.description}</p>
-                  <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+          <h4 className="admin-section-title review-title"><ShieldAlert size={16} /> Reports needing review <span>{domainReviews.length}</span></h4>
+          <p className="admin-section-description">Review reports the AI could not verify. Reports are not assigned until an admin approves them.</p>
+          <div className="admin-review-list">
+            {domainReviews.map((issue) => (
+              <div key={issue.id} className={`admin-review-card${issue.beforeImageUrl ? ' has-image' : ''}`}>
+                <div className="admin-review-content">
+                  <div className="admin-review-title-row"><span className="admin-ticket-id">#{issue.id}</span><strong>{issue.title}</strong><span className="admin-review-status">Needs review</span></div>
+                  <p className="admin-review-description">{issue.description}</p>
+                  <p className="admin-review-meta">
+                    <MapPin size={14} />
                     {issue.location} · {issue.domain} · {CATEGORIES.find((category) => category.id === issue.category)?.name || issue.category} · Reported by {issue.reportedBy}
                   </p>
-                  {issue.aiAssessment && <p style={{ color: '#c7d2fe', fontSize: '0.8rem', marginTop: '0.45rem' }}>AI: {issue.aiAssessment.verdict} · {issue.aiAssessment.confidence}% confidence · {issue.aiAssessment.summary}</p>}
-                  {issue.beforeImageUrl && <a href={issue.beforeImageUrl} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', fontSize: '0.75rem', marginRight: '0.75rem' }}>Open photo evidence</a>}
-                  {issue.videoUrl && <a href={issue.videoUrl} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', fontSize: '0.75rem' }}>Open video evidence</a>}
-                  {issue.videoUrl && <video src={issue.videoUrl} controls playsInline aria-label={`Video evidence for ${issue.id}`} style={{ display: 'block', width: '100%', maxHeight: '180px', marginTop: '0.5rem', borderRadius: '0.4rem', background: '#020617' }} />}
+                  {issue.aiAssessment && <p className="admin-ai-assessment">AI: {issue.aiAssessment.verdict} · {issue.aiAssessment.confidence}% confidence · {issue.aiAssessment.summary}</p>}
+                  <div className="admin-evidence-links">
+                    {issue.beforeImageUrl && <a href={issue.beforeImageUrl} target="_blank" rel="noreferrer">Open photo evidence</a>}
+                    {issue.videoUrl && <a href={issue.videoUrl} target="_blank" rel="noreferrer">Open video evidence</a>}
+                  </div>
+                  {issue.videoUrl && <video className="admin-review-video" src={issue.videoUrl} controls playsInline aria-label={`Video evidence for ${issue.id}`} />}
                   <input
+                    className="admin-rejection-reason"
                     aria-label={`Rejection reason for ${issue.id}`}
                     value={rejectionReasons[issue.id] || ''}
                     onChange={(event) => setRejectionReasons((previous) => ({ ...previous, [issue.id]: event.target.value }))}
                     placeholder="Reason required if rejecting"
-                    style={{ display: 'block', width: '100%', marginTop: '0.55rem', background: '#0f172a', color: 'white', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '0.4rem', padding: '0.55rem' }}
                   />
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.55rem' }}>
-                    <button className="btn-primary" onClick={() => handleReview(issue, 'genuine')} style={{ padding: '0.5rem 0.75rem', background: '#059669' }}>Mark genuine</button>
-                    <button className="btn-secondary" onClick={() => handleReview(issue, 'rejected')} style={{ padding: '0.5rem 0.75rem' }}>Reject report</button>
+                  <div className="admin-review-actions">
+                    <button className="btn-primary admin-verify" onClick={() => handleReview(issue, 'genuine')}><CheckCircle2 size={16} /> Approve report</button>
+                    <button className="btn-secondary admin-reject" onClick={() => handleReview(issue, 'rejected')}>Reject report</button>
                   </div>
                 </div>
-                {issue.beforeImageUrl && <img src={issue.beforeImageUrl} alt="Submitted issue evidence" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '0.4rem' }} />}
+                {issue.beforeImageUrl && <img className="admin-review-image" src={issue.beforeImageUrl} alt="Submitted issue evidence" />}
               </div>
             ))}
-            {pendingReviews.length === 0 && <p style={{ color: '#64748b', fontSize: '0.85rem' }}>No reports are waiting for review.</p>}
+            {domainReviews.length === 0 && <p className="admin-empty-state">No reports are waiting for review in this scope.</p>}
           </div>
 
-          <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: '#a5b4fc', margin: '1rem 0 0.6rem' }}>Reports requiring assignment</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+          <h4 className="admin-section-title assignment-title"><Layers size={16} /> Verified reports ready for assignment</h4>
+          <p className="admin-section-description">Choose an approved employee in the matching department to dispatch each report.</p>
+          <div className="admin-assignment-list">
             {domainIssues.filter((issue) => issue.isGenuine === true && issue.status !== 'resolved').map((issue) => {
               const matchingTechnicians = technicians.filter((technician) => technician.department === 'general' || technician.department === issue.category);
               return (
-                <div key={issue.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(190px, 250px) auto', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <strong>#{issue.id} · {issue.title}</strong>
-                    <p style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{issue.location} · {issue.urgency} · {CATEGORIES.find((category) => category.id === issue.category)?.name || issue.category}</p>
-                    {issue.assignedToUser && <span style={{ color: '#34d399', fontSize: '0.75rem' }}>Assigned to {issue.assignedTo}</span>}
-                    {issue.reviewSource === 'ai' && !issue.assignedToUser && <button className="btn-secondary" onClick={() => handleReview(issue, 'needs_review')} style={{ display: 'block', marginTop: '0.45rem', padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}>Reopen AI review</button>}
+                <div key={issue.id} className="admin-assignment-card">
+                  <div className="admin-assignment-info">
+                    <strong><span className="admin-ticket-id">#{issue.id}</span> {issue.title}</strong>
+                    <p><MapPin size={14} /> {issue.location} <span>·</span> {issue.urgency} priority <span>·</span> {CATEGORIES.find((category) => category.id === issue.category)?.name || issue.category}</p>
+                    {issue.assignedToUser && <span className="admin-assigned-label"><CheckCircle2 size={14} /> Assigned to {issue.assignedTo}</span>}
+                    {issue.reviewSource === 'ai' && !issue.assignedToUser && <button className="btn-secondary admin-reopen" onClick={() => handleReview(issue, 'needs_review')}>Reopen AI review</button>}
                   </div>
                   <select
+                    className="admin-employee-select"
                     value={selectedTechnicians[issue.id] || issue.assignedToUser || ''}
                     onChange={(event) => setSelectedTechnicians((previous) => ({ ...previous, [issue.id]: event.target.value }))}
                     disabled={matchingTechnicians.length === 0}
-                    style={{ width: '100%', minWidth: 0, background: '#0f172a', color: 'white', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '0.5rem', padding: '0.6rem' }}
                   >
                     <option value="">{matchingTechnicians.length ? 'Select employee' : 'No approved specialist'}</option>
                     {matchingTechnicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.name} · {departmentName(technician.department)}</option>)}
                   </select>
-                  <button className="btn-primary" disabled={!selectedTechnicians[issue.id] && !issue.assignedToUser} onClick={() => handleAssign(issue)} style={{ padding: '0.6rem 0.8rem' }}>
+                  <button className="btn-primary admin-assign" disabled={!selectedTechnicians[issue.id] && !issue.assignedToUser} onClick={() => handleAssign(issue)}>
                     {issue.assignedToUser ? 'Reassign' : 'Assign'}
                   </button>
                 </div>
               );
             })}
-            {domainIssues.filter((issue) => issue.isGenuine === true && issue.status !== 'resolved').length === 0 && <p style={{ color: '#64748b', fontSize: '0.85rem' }}>No verified reports need assignment in this domain.</p>}
+            {domainIssues.filter((issue) => issue.isGenuine === true && issue.status !== 'resolved').length === 0 && <p className="admin-empty-state">No verified reports need assignment in this domain.</p>}
           </div>
+
+          <h4 className="admin-section-title staff-title"><Users size={16} /> Approved employees <span>{approvedEmployees.length}</span></h4>
+          <p className="admin-section-description">Employees available for report assignments. Department matching is enforced when assigning work.</p>
+          {approvedEmployees.length > 0 ? (
+            <div className="admin-staff-grid">
+              {approvedEmployees.map((employee) => (
+                <div key={employee.id} className="admin-staff-card">
+                  <div style={{ minWidth: 0 }}>
+                    <strong>{employee.name}</strong>
+                    <p className="admin-muted-text">{employee.email}</p>
+                    <span className="admin-staff-department">{departmentName(employee.department)}</span>
+                  </div>
+                  <span className="admin-employee-active">Active</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="admin-empty-state">No approved employees yet. Create local demo employees using the setup instructions in DATABASE_EMAIL_SETUP.md.</p>
+          )}
         </section>
 
         {/* 4 Metric KPI Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-          <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.25rem', borderRadius: '0.75rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Total Issues Logged</span>
+        <div className="admin-metrics">
+          <div className="admin-metric">
+            <span className="admin-metric-label">Total issues logged</span>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem' }}>
-              <span style={{ fontFamily: 'var(--font-heading)', fontSize: '2.2rem', fontWeight: 800, color: 'white' }}>{totalCount}</span>
-              <Layers size={22} color="#818cf8" />
+              <span className="admin-metric-value">{totalCount}</span>
+              <Layers size={21} className="metric-blue" />
             </div>
           </div>
 
-          <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.25rem', borderRadius: '0.75rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Resolution Rate</span>
+          <div className="admin-metric">
+            <span className="admin-metric-label">Resolution rate</span>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem' }}>
-              <span style={{ fontFamily: 'var(--font-heading)', fontSize: '2.2rem', fontWeight: 800, color: '#34d399' }}>{resolutionRate}%</span>
-              <CheckCircle2 size={22} color="#10b981" />
+              <span className="admin-metric-value metric-green-text">{resolutionRate}%</span>
+              <CheckCircle2 size={21} className="metric-green" />
             </div>
           </div>
 
-          <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.25rem', borderRadius: '0.75rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Awaiting Work</span>
+          <div className="admin-metric">
+            <span className="admin-metric-label">Awaiting work</span>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem' }}>
-              <span style={{ fontFamily: 'var(--font-heading)', fontSize: '2.2rem', fontWeight: 800, color: '#fbbf24' }}>{reportedCount}</span>
-              <Layers size={22} color="#fbbf24" />
+              <span className="admin-metric-value metric-amber-text">{reportedCount}</span>
+              <Layers size={21} className="metric-amber" />
             </div>
           </div>
 
-          <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.25rem', borderRadius: '0.75rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>In Progress</span>
+          <div className="admin-metric">
+            <span className="admin-metric-label">In progress</span>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem' }}>
-              <span style={{ fontFamily: 'var(--font-heading)', fontSize: '2.2rem', fontWeight: 800, color: '#38bdf8' }}>{inProgressCount}</span>
-              <Layers size={22} color="#38bdf8" />
+              <span className="admin-metric-value metric-sky-text">{inProgressCount}</span>
+              <Layers size={21} className="metric-sky" />
             </div>
           </div>
         </div>
 
         {/* Category Distribution Bar Charts */}
-        <div>
-          <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>
+        <div className="admin-category-panel">
+          <h3 className="admin-category-heading">
             Category Volume Breakdown
           </h3>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div className="admin-category-list">
             {CATEGORIES.map(cat => {
               const count = domainIssues.filter(i => i.category === cat.id).length;
               const percent = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
 
               return (
-                <div key={cat.id} style={{ display: 'grid', gridTemplateColumns: '180px 1fr 60px', gap: '1rem', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.85rem', color: '#cbd5e1', fontWeight: 600 }}>{cat.name}</span>
-                  <div style={{ height: '10px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '9999px', overflow: 'hidden' }}>
+                <div key={cat.id} className="admin-category-row">
+                  <span className="admin-category-name">{cat.name}</span>
+                  <div className="admin-category-track">
                     <div style={{ height: '100%', width: `${percent}%`, background: cat.color, borderRadius: '9999px', transition: 'width 0.8s ease' }}></div>
                   </div>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#94a3b8', textAlign: 'right' }}>{count} ({percent}%)</span>
+                  <span className="admin-category-count">{count} <small>({percent}%)</small></span>
                 </div>
               );
             })}

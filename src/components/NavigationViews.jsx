@@ -7,14 +7,16 @@ import { Download, Search, AlertTriangle, ArrowLeft } from 'lucide-react';
 export const NavigationViews = () => {
   const { 
     currentView, setCurrentView, 
-    issues, domain, setSelectedIssue,
+    dashboardIssues: issues, domain, role, setSelectedIssue,
     showToast 
   } = useIssues();
 
   const [searchFilter, setSearchFilter] = useState('');
   const [catFilter, setCatFilter] = useState('all');
 
-  const relevantIssues = issues.filter(i => !domain || i.domain === domain || domain === 'off-campus');
+  const relevantIssues = role === 'student'
+    ? issues.filter((issue) => issue.domain === domain)
+    : issues.filter(i => i.domain === domain);
 
   // CSV Export utility
   const handleExportCSV = () => {
@@ -105,19 +107,23 @@ export const NavigationViews = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
             <div>
               <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', fontWeight: 800 }}>
-                Master Incident Reports Directory
+                {role === 'student' ? 'My Reports' : 'Master Incident Reports Directory'}
               </h2>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Showing {filtered.length} total reports tracked across the network
+                {role === 'student'
+                  ? `Showing ${filtered.length} reports you submitted`
+                  : `Showing ${filtered.length} total reports tracked across the network`}
               </p>
             </div>
-            <button 
-              className="btn-primary-action"
-              onClick={handleExportCSV}
-            >
-              <Download size={15} />
-              <span>Export CSV Audit</span>
-            </button>
+            {role !== 'student' && (
+              <button
+                className="btn-primary-action"
+                onClick={handleExportCSV}
+              >
+                <Download size={15} />
+                <span>Export CSV Audit</span>
+              </button>
+            )}
           </div>
 
           {/* Search and Filters */}
@@ -315,6 +321,12 @@ export const NavigationViews = () => {
 
   // 5. ANALYTICS VIEW
   if (currentView === 'analytics') {
+    const resolvedCount = relevantIssues.filter(issue => issue.status === 'resolved').length;
+    const openCount = relevantIssues.filter(issue => issue.status === 'reported' || issue.status === 'open').length;
+    const resolutionRate = relevantIssues.length
+      ? Math.round((resolvedCount / relevantIssues.length) * 100)
+      : 0;
+
     return (
       <div>
         <BackButton />
@@ -323,24 +335,24 @@ export const NavigationViews = () => {
             Operational Performance & SLA Analytics
           </h2>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-            Resolution benchmarks, response efficiency, and category breakdown
+            Current status of reports in your operations workspace
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
             <div style={{ background: 'var(--bg-card-subtle)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid var(--border-color)' }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>RESOLUTION SUCCESS RATE</div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', fontWeight: 800, color: '#10b981', marginTop: '0.35rem' }}>92.4%</div>
-              <div style={{ fontSize: '0.74rem', color: '#059669', marginTop: '0.25rem' }}>↗ +3.2% vs last month</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>TOTAL REPORTS</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', fontWeight: 800, color: '#2563eb', marginTop: '0.35rem' }}>{relevantIssues.length}</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Reports in this account's workspace</div>
             </div>
             <div style={{ background: 'var(--bg-card-subtle)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid var(--border-color)' }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>SLA COMPLIANCE</div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', fontWeight: 800, color: '#2563eb', marginTop: '0.35rem' }}>98.1%</div>
-              <div style={{ fontSize: '0.74rem', color: '#2563eb', marginTop: '0.25rem' }}>Within category target window</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>OPEN REPORTS</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', fontWeight: 800, color: '#ea580c', marginTop: '0.35rem' }}>{openCount}</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Awaiting resolution</div>
             </div>
             <div style={{ background: 'var(--bg-card-subtle)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid var(--border-color)' }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>CDN CACHE HIT RATIO</div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', fontWeight: 800, color: '#8b5cf6', marginTop: '0.35rem' }}>96.8%</div>
-              <div style={{ fontSize: '0.74rem', color: '#7c3aed', marginTop: '0.25rem' }}>Powered by Cloudinary Edge CDN</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>RESOLUTION RATE</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', fontWeight: 800, color: '#10b981', marginTop: '0.35rem' }}>{resolutionRate}%</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{resolvedCount} resolved report{resolvedCount === 1 ? '' : 's'}</div>
             </div>
           </div>
         </div>
@@ -362,35 +374,9 @@ export const NavigationViews = () => {
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
-            {[
-              { name: 'Carlos Mendoza', role: 'Lead Field Specialist', dept: 'Roads & Potholes', points: '1,450 pts' },
-              { name: 'Elena Rostova', role: 'Senior Electrician', dept: 'Streetlights & Electrical', points: '1,280 pts' },
-              { name: 'Marcus Chen', role: 'Sanitation Coordinator', dept: 'Sanitation & Waste', points: '980 pts' },
-              { name: 'David Miller', role: 'Plumbing Lead', dept: 'Plumbing & Water', points: '860 pts' },
-              { name: 'Priya Sharma', role: 'Campus Systems Officer', dept: 'IT & Safety', points: '740 pts' }
-            ].map((member, idx) => (
-              <div 
-                key={idx} 
-                style={{
-                  background: 'var(--bg-card-subtle)',
-                  padding: '1.15rem',
-                  borderRadius: '0.75rem',
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.85rem'
-                }}
-              >
-                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#2563eb', color: 'white', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: '0.85rem' }}>
-                  {member.name.split(' ').map(n => n[0]).join('')}
-                </div>
-                <div>
-                  <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>{member.name}</strong>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{member.dept}</div>
-                  <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700, marginTop: '0.15rem' }}>{member.points}</div>
-                </div>
-              </div>
-            ))}
+            <p style={{ color: 'var(--text-muted)', textAlign: 'center', gridColumn: '1 / -1' }}>
+              No directory records are available for this account.
+            </p>
           </div>
         </div>
       </div>
