@@ -271,6 +271,18 @@
   color: var(--primary-hover);
 }
 
+.report-suggest:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.report-location-message {
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
 .report-input {
   display: block;
   width: 100%;

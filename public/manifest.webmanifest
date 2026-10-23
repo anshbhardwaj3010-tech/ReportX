@@ -1,0 +1,17 @@
+{
+  "name": "ReportX — Campus & Community Operations",
+  "short_name": "ReportX",
+  "description": "Report and track campus and community facility issues.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/reportx-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

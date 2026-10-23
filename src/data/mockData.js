@@ -13,27 +13,11 @@ export const CATEGORIES = [
 ];
 
 export const CITY_COORDINATES = {
-  center: [38.7610, -9.1125],
-  zoom: 14
+  center: [28.6692, 77.4538],
+  zoom: 12
 };
 
 export const LOCATION_COORDINATES_MAP = {
-  // City locations
-  '4th & Main St': [38.7652, -9.1120],
-  'Pothole on 4th & Main': [38.7652, -9.1120],
-  'Elm St & 3rd Ave': [38.7573, -9.1145],
-  'Broken streetlight — Elm St': [38.7573, -9.1145],
-  'Park Ave & 2nd St': [38.7565, -9.1090],
-  'Graffiti on wall — Park Ave': [38.7565, -9.1090],
-  'Market St & Center': [38.7619, -9.1081],
-  'Overflowing bin — Market St': [38.7619, -9.1081],
-  'Hwy 12 Northbound': [38.7652, -9.1120],
-  'Damaged sign — Hwy 12': [38.7652, -9.1120],
-  'Downtown Central District': [38.7615, -9.1110],
-  'Riverview Promenade': [38.7670, -9.1170],
-  'Oakwood Park East': [38.7595, -9.1020],
-  'Lakeside Park Shore': [38.7530, -9.1180],
-
   // Campus locations
   'ABESIT Block A - Room 101': [28.6335, 77.4470],
   'ABESIT Block A - Room 302': [28.6338, 77.4473],
@@ -73,7 +57,7 @@ export const OFF_CAMPUS_LOCATIONS = [
 ];
 
 /**
- * Returns latitude and longitude for a given location, or generates a deterministic coordinate
+ * Returns coordinates only for locations with a known point. Unknown addresses need GPS.
  */
 export const getLocationCoordinates = (locationName = '') => {
   if (LOCATION_COORDINATES_MAP[locationName]) {
@@ -88,22 +72,13 @@ export const getLocationCoordinates = (locationName = '') => {
     return LOCATION_COORDINATES_MAP[matchedKey];
   }
 
-  // Deterministic fallback based on string hash
-  let hash = 0;
-  for (let i = 0; i < locationName.length; i++) {
-    hash = ((hash << 5) - hash) + locationName.charCodeAt(i);
-    hash |= 0;
-  }
-  const latOffset = ((Math.abs(hash) % 100) - 50) * 0.0003;
-  const lngOffset = ((Math.abs(hash >> 3) % 100) - 50) * 0.0003;
-  
-  return [38.7610 + latOffset, -9.1125 + lngOffset];
+  return null;
 };
 
 /**
- * Formats coordinates for display (e.g. "38.7652, -9.1120")
+ * Formats coordinates for display (e.g. "28.6335, 77.4470").
  */
 export const formatCoords = (coords) => {
-  if (!Array.isArray(coords) || coords.length < 2) return '38.7610, -9.1125';
+  if (!Array.isArray(coords) || coords.length < 2) return 'Coordinates unavailable';
   return `${coords[0].toFixed(4)}, ${coords[1].toFixed(4)}`;
 };

@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { CATEGORIES, ON_CAMPUS_LOCATIONS, OFF_CAMPUS_LOCATIONS, getLocationCoordinates } from '../data/mockData';
 import { PhotoUpload } from './PhotoUpload';
-import { X, Sparkles, AlertTriangle, Zap, MapPin, Building2, ClipboardCheck, ShieldCheck } from 'lucide-react';
+import { X, Sparkles, AlertTriangle, Zap, MapPin, Building2, ClipboardCheck, ShieldCheck, LocateFixed } from 'lucide-react';
 import './QuickReportModal.css';
 
 export const QuickReportModal = () => {
   const { 
     isReportModalOpen, setIsReportModalOpen, 
-    addIssue, domain, aiClassify, issues, upvoteIssue 
+    addIssue, domain, aiClassify, issues, upvoteIssue, currentUser, showToast
   } = useIssues();
 
   const [formDomain, setFormDomain] = useState(domain);
@@ -24,6 +24,87 @@ export const QuickReportModal = () => {
   const [aiMessage, setAiMessage] = useState(null);
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [screeningError, setScreeningError] = useState(null);
+  const [gpsCoordinates, setGpsCoordinates] = useState(null);
+  const [gpsMessage, setGpsMessage] = useState('');
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [draftStorageError, setDraftStorageError] = useState('');
+  const [draftLoadRevision, setDraftLoadRevision] = useState(0);
+  const draftKey = currentUser ? `reportx_issue_draft_${currentUser.id}` : null;
+  const loadedDraftFor = useRef(null);
+  const skipDraftSave = useRef(false);
+
+  useEffect(() => {
+    if (!isReportModalOpen || !draftKey) {
+      loadedDraftFor.current = null;
+      return;
+    }
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
+      if (draft) {
+        setFormDomain(draft.formDomain === 'on-campus' ? 'on-campus' : 'off-campus');
+        setTitle(draft.title || '');
+        setDescription(draft.description || '');
+        setCategory(draft.category || 'electrical');
+        setLocation(draft.location || (domain === 'on-campus' ? ON_CAMPUS_LOCATIONS[0] : OFF_CAMPUS_LOCATIONS[0]));
+        setUrgency(draft.urgency || 'medium');
+        setImageUrl(draft.imageUrl || '');
+        setVideoUrl(draft.videoUrl || '');
+        setGpsCoordinates(draft.gpsCoordinates || null);
+        setGpsMessage(draft.gpsCoordinates ? 'Saved GPS coordinates restored.' : '');
+        setAiMessage(null);
+        setScreeningError(null);
+      } else {
+        setFormDomain(domain);
+        setLocation(domain === 'on-campus' ? ON_CAMPUS_LOCATIONS[0] : OFF_CAMPUS_LOCATIONS[0]);
+        setTitle('');
+        setDescription('');
+        setCategory('electrical');
+        setUrgency('medium');
+        setImageUrl('');
+        setVideoUrl('');
+        setGpsCoordinates(null);
+        setGpsMessage('');
+        setAiMessage(null);
+        setScreeningError(null);
+      }
+      loadedDraftFor.current = draftKey;
+      skipDraftSave.current = true;
+      setDraftLoadRevision((revision) => revision + 1);
+      setDraftStorageError('');
+    } catch {
+      setFormDomain(domain);
+      setTitle('');
+      setDescription('');
+      setCategory('electrical');
+      setLocation(domain === 'on-campus' ? ON_CAMPUS_LOCATIONS[0] : OFF_CAMPUS_LOCATIONS[0]);
+      setUrgency('medium');
+      setImageUrl('');
+      setVideoUrl('');
+      setGpsCoordinates(null);
+      setGpsMessage('');
+      setDraftStorageError('Could not restore your saved draft from this browser.');
+      loadedDraftFor.current = draftKey;
+      skipDraftSave.current = true;
+      setDraftLoadRevision((revision) => revision + 1);
+    }
+  }, [isReportModalOpen, draftKey, domain]);
+
+  useEffect(() => {
+    if (!isReportModalOpen || !draftKey || loadedDraftFor.current !== draftKey) return;
+    if (skipDraftSave.current) {
+      skipDraftSave.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({
+        formDomain, title, description, category, location, urgency,
+        imageUrl, videoUrl, gpsCoordinates
+      }));
+      setDraftStorageError('');
+    } catch {
+      setDraftStorageError('Draft storage is unavailable. Keep this form open until you can submit.');
+    }
+  }, [isReportModalOpen, draftKey, draftLoadRevision, formDomain, title, description, category, location, urgency, imageUrl, videoUrl, gpsCoordinates]);
 
   if (!isReportModalOpen) return null;
 
@@ -65,12 +146,15 @@ export const QuickReportModal = () => {
       category,
       domain: formDomain,
       location,
-      coords: getLocationCoordinates(location),
+      coords: gpsCoordinates
+        ? [gpsCoordinates.latitude, gpsCoordinates.longitude]
+        : getLocationCoordinates(location),
       urgency,
       imageUrl,
       videoUrl,
       aiConfidence
     });
+    if (result === null) return;
     if (result?.screeningFailed) {
       setScreeningError(result);
       return;
@@ -85,8 +169,47 @@ export const QuickReportModal = () => {
     setDescription('');
     setImageUrl('');
     setVideoUrl('');
+    setGpsCoordinates(null);
     setAiMessage(null);
     setDuplicateWarning(null);
+    if (draftKey) {
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        showToast('Your report was submitted, but the saved draft could not be removed from this browser.', 'error');
+      }
+    }
+  };
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setGpsMessage('Location is not supported by this browser.');
+      return;
+    }
+    if (!window.isSecureContext) {
+      setGpsMessage('Live location requires HTTPS. Open this site over HTTPS or use localhost during development.');
+      return;
+    }
+    setGpsLoading(true);
+    setGpsMessage('');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const coordinates = { latitude: coords.latitude, longitude: coords.longitude };
+        const currentLocation = `Current location (${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)})`;
+        setGpsCoordinates(coordinates);
+        setLocation(currentLocation);
+        setGpsMessage('Your coordinates will be attached to this report.');
+        checkDuplicate(currentLocation, category);
+        setGpsLoading(false);
+      },
+      (error) => {
+        setGpsMessage(error.code === error.PERMISSION_DENIED
+          ? 'Location permission was denied. You can still choose a location manually.'
+          : 'Could not determine your location. Choose a location manually or try again.');
+        setGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   };
 
   return (
@@ -120,7 +243,7 @@ export const QuickReportModal = () => {
                 type="button"
                 className={`report-domain-option${formDomain === 'on-campus' ? ' is-active campus' : ''}`}
                 aria-pressed={formDomain === 'on-campus'}
-                onClick={() => { setFormDomain('on-campus'); setLocation(ON_CAMPUS_LOCATIONS[0]); checkDuplicate(ON_CAMPUS_LOCATIONS[0], category, 'on-campus'); }}
+                onClick={() => { setFormDomain('on-campus'); setLocation(ON_CAMPUS_LOCATIONS[0]); setGpsCoordinates(null); setGpsMessage(''); checkDuplicate(ON_CAMPUS_LOCATIONS[0], category, 'on-campus'); }}
               >
                 <Building2 size={19} /><span><strong>Campus facilities</strong><small>Hostels, classrooms, labs</small></span>
               </button>
@@ -128,7 +251,7 @@ export const QuickReportModal = () => {
                 type="button"
                 className={`report-domain-option${formDomain === 'off-campus' ? ' is-active city' : ''}`}
                 aria-pressed={formDomain === 'off-campus'}
-                onClick={() => { setFormDomain('off-campus'); setLocation(OFF_CAMPUS_LOCATIONS[0]); checkDuplicate(OFF_CAMPUS_LOCATIONS[0], category, 'off-campus'); }}
+                onClick={() => { setFormDomain('off-campus'); setLocation(OFF_CAMPUS_LOCATIONS[0]); setGpsCoordinates(null); setGpsMessage(''); checkDuplicate(OFF_CAMPUS_LOCATIONS[0], category, 'off-campus'); }}
               >
                 <MapPin size={19} /><span><strong>Off-campus & household</strong><small>Neighborhoods, homes, streets</small></span>
               </button>
@@ -219,17 +342,26 @@ export const QuickReportModal = () => {
             </div>
 
             <div className="report-field">
-              <label htmlFor="report-location" className="report-label">LOCATION / ROOM</label>
+              <div className="report-title-row">
+                <label htmlFor="report-location" className="report-label">LOCATION / ROOM</label>
+                <button type="button" className="report-suggest" onClick={handleUseCurrentLocation} disabled={gpsLoading}>
+                  <LocateFixed size={13} />
+                  <span>{gpsLoading ? 'Finding location…' : 'Use my location'}</span>
+                </button>
+              </div>
               <select 
                 id="report-location"
                 value={location}
-                onChange={(e) => { setLocation(e.target.value); checkDuplicate(e.target.value, category); }}
+                onChange={(e) => { setLocation(e.target.value); setGpsCoordinates(null); setGpsMessage(''); checkDuplicate(e.target.value, category); }}
                 className="report-input report-select"
               >
+                {gpsCoordinates && <option value={location}>{location}</option>}
                 {(formDomain === 'on-campus' ? ON_CAMPUS_LOCATIONS : OFF_CAMPUS_LOCATIONS).map(loc => (
                   <option key={loc} value={loc}>{loc}</option>
                 ))}
               </select>
+              {gpsMessage && <p className="report-location-message" role="status">{gpsMessage}</p>}
+              <p className="report-location-message">Exact coordinates may appear on operations maps. Use GPS for the issue location, not a private location you do not want shared.</p>
             </div>
           </div>
 
@@ -283,6 +415,24 @@ export const QuickReportModal = () => {
 
           {/* Buttons */}
           <div className="report-form-actions">
+            <button
+              type="button"
+              className="btn-secondary report-cancel"
+              onClick={() => {
+                if (!draftKey) return;
+                try {
+                  localStorage.setItem(draftKey, JSON.stringify({
+                    formDomain, title, description, category, location, urgency,
+                    imageUrl, videoUrl, gpsCoordinates
+                  }));
+                  showToast('Your report draft is saved on this device.', 'success');
+                } catch {
+                  setDraftStorageError('Draft storage is unavailable. Keep this form open until you can submit.');
+                }
+              }}
+            >
+              Save draft
+            </button>
             <button type="button" className="btn-secondary report-cancel" onClick={() => setIsReportModalOpen(false)}>
               Cancel
             </button>
@@ -291,6 +441,8 @@ export const QuickReportModal = () => {
               <span>AI Check & Submit</span>
             </button>
           </div>
+          {draftStorageError && <p className="report-location-message" role="alert">{draftStorageError}</p>}
+          <p className="report-location-message">Your draft stays in this browser on this device. Report submission still requires an internet connection.</p>
         </form>
       </div>
     </div>

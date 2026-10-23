@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { CATEGORIES } from '../data/mockData';
 
-const API_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:5000/api`;
+const API_URL = import.meta.env.DEV
+  ? '/api'
+  : import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:5000/api`;
 
 const IssueContext = createContext();
 
@@ -27,6 +29,7 @@ export const IssueProvider = ({ children }) => {
   const [issues, setIssues] = useState([]);
   const [myIssues, setMyIssues] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [notificationError, setNotificationError] = useState(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -146,9 +149,28 @@ export const IssueProvider = ({ children }) => {
               if (!mineResponse.ok) throw new Error('Could not load your reports.');
               setMyIssues(await mineResponse.json());
             }
+            const notificationResponse = await fetch(`${API_URL}/notifications`, {
+              headers: { Authorization: `Bearer ${authToken}` }
+            });
+            if (!notificationResponse.ok) {
+              const result = await notificationResponse.json().catch(() => ({}));
+              setNotificationError(notificationResponse.status === 404
+                ? 'This API server does not support notifications yet. Restart or redeploy the latest ReportX API.'
+                : result.error || 'Could not load your notifications.');
+            } else {
+              const result = await notificationResponse.json().catch(() => null);
+              if (Array.isArray(result)) {
+                setNotifications(result);
+                setNotificationError(null);
+              } else {
+                setNotificationError('The API returned an invalid notifications response.');
+              }
+            }
           }
         } else {
           setMyIssues([]);
+          setNotifications([]);
+          setNotificationError(null);
         }
       } catch (error) {
         if (!hasShownApiError.current) {
@@ -166,6 +188,15 @@ export const IssueProvider = ({ children }) => {
     setToastMessage({ message, type, id: Date.now() });
     setTimeout(() => setToastMessage(null), 4000);
   }, []);
+
+  const markNotificationsRead = async () => {
+    try {
+      await request('/notifications/read', { method: 'PATCH' });
+      setNotifications((previous) => previous.map((notification) => ({ ...notification, read: true })));
+    } catch (error) {
+      showToast(error.message, 'error');
+    }
+  };
 
   const addNotification = (text, type = 'info') => {
     const newNotif = {
@@ -190,6 +221,7 @@ export const IssueProvider = ({ children }) => {
     setIssues([]);
     setMyIssues([]);
     setNotifications([]);
+    setNotificationError(null);
     setSelectedIssue(null);
     setIsReportModalOpen(false);
     setIsAuthModalOpen(false);
@@ -256,17 +288,30 @@ export const IssueProvider = ({ children }) => {
     if (result.url && (result.url.startsWith('http://') || result.url.startsWith('https://'))) {
       return result.url;
     }
-    const apiOrigin = API_URL.replace(/\/api\/?$/, '');
+    const apiOrigin = new URL(API_URL, window.location.origin).origin;
     return new URL(result.url, apiOrigin).toString();
   };
 
+  const submitContact = (details) => request('/contact', {
+    method: 'POST',
+    body: JSON.stringify(details)
+  });
+
   const logout = () => {
+    if (currentUser?.id) {
+      try {
+        localStorage.removeItem(`reportx_issue_draft_${currentUser.id}`);
+      } catch {
+        showToast('Your saved report draft could not be removed from this browser.', 'error');
+      }
+    }
     localStorage.removeItem('reportx_token');
     setAuthToken(null);
     setCurrentUser(null);
     setIssues([]);
     setMyIssues([]);
     setNotifications([]);
+    setNotificationError(null);
     setSelectedIssue(null);
     setIsReportModalOpen(false);
     setCurrentView('home');
@@ -397,9 +442,12 @@ export const IssueProvider = ({ children }) => {
       getStaffApplications, getTechnicians, getPendingIssueReviews,
       approveStaffApplication, assignIssue, reviewIssue,
       uploadImage,
+      submitContact,
       issues,
       dashboardIssues,
       notifications,
+      notificationError,
+      markNotificationsRead,
       searchQuery, setSearchQuery,
       categoryFilter, setCategoryFilter,
       statusFilter, setStatusFilter,

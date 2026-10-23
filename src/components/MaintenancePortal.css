@@ -212,6 +212,13 @@
   background: #047857;
 }
 
+.maintenance-action-directions {
+  border-color: var(--primary-border);
+  background: var(--primary-subtle);
+  color: var(--primary);
+  text-decoration: none;
+}
+
 .maintenance-resolved-label {
   display: inline-flex;
   align-items: center;

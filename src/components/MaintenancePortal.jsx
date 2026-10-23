@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { PhotoUpload } from './PhotoUpload';
-import { Wrench, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { LiveMapWidget } from './LiveMapWidget';
+import { getDirectionsUrl, getIssueCoordinates } from '../utils/mapLocation';
+import { Wrench, CheckCircle2, ShieldCheck, Navigation } from 'lucide-react';
 import './MaintenancePortal.css';
 
 export const MaintenancePortal = () => {
@@ -27,6 +29,7 @@ export const MaintenancePortal = () => {
 
   return (
     <div className="maintenance-portal">
+      <LiveMapWidget />
       <div className="maintenance-panel">
         <div className="maintenance-header">
           <div>
@@ -79,6 +82,18 @@ export const MaintenancePortal = () => {
 
               {/* Status Update Actions */}
               <div className="maintenance-order-actions">
+                {getDirectionsUrl(getIssueCoordinates(issue)) && (
+                  <a
+                    className="maintenance-action maintenance-action-directions"
+                    href={getDirectionsUrl(getIssueCoordinates(issue))}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Get directions to ${issue.location}`}
+                  >
+                    <Navigation size={16} />
+                    <span>Get directions</span>
+                  </a>
+                )}
                 {issue.status === 'reported' && (
                   <button 
                     className="maintenance-action maintenance-action-start"

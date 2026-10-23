@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { 
   ShieldAlert, ShieldCheck, Zap, Sparkles, Clock, Camera, 
@@ -14,13 +14,15 @@ const CURRENT_YEAR = new Date().getFullYear();
 export const HomePage = () => {
   const { 
     currentUser, 
+    issues,
     logout, 
     openAuthModal, 
     setIsReportModalOpen, 
     setCurrentView,
     theme, 
     setTheme, 
-    showToast 
+    showToast,
+    submitContact
   } = useIssues();
 
   // Contact form state
@@ -29,6 +31,9 @@ export const HomePage = () => {
   const [contactDepartment, setContactDepartment] = useState('general');
   const [contactMessage, setContactMessage] = useState('');
   const [contactSent, setContactSent] = useState(false);
+  const [contactSending, setContactSending] = useState(false);
+  const [contactError, setContactError] = useState('');
+  const [installPrompt, setInstallPrompt] = useState(null);
 
   // FAQ accordion state
   const [expandedFaq, setExpandedFaq] = useState(null);
@@ -43,19 +48,50 @@ export const HomePage = () => {
     }
   };
 
-  const handleContactSubmit = (e) => {
+  useEffect(() => {
+    const captureInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const clearInstallPrompt = () => setInstallPrompt(null);
+    window.addEventListener('beforeinstallprompt', captureInstallPrompt);
+    window.addEventListener('appinstalled', clearInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
+      window.removeEventListener('appinstalled', clearInstallPrompt);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    setInstallPrompt(null);
+  };
+
+  const handleContactSubmit = async (e) => {
     e.preventDefault();
-    if (!contactName || !contactEmail || !contactMessage) return;
-
-    setContactSent(true);
-    showToast(`Thank you ${contactName}, your message has been received by our facilities desk.`, 'success');
-    setContactName('');
-    setContactEmail('');
-    setContactMessage('');
-
-    setTimeout(() => {
+    setContactSending(true);
+    setContactSent(false);
+    setContactError('');
+    try {
+      const result = await submitContact({
+        name: contactName,
+        email: contactEmail,
+        department: contactDepartment,
+        message: contactMessage
+      });
+      setContactSent(true);
+      showToast(result.message, 'success');
+      setContactName('');
+      setContactEmail('');
+      setContactMessage('');
+    } catch (error) {
       setContactSent(false);
-    }, 6000);
+      setContactError(error.message);
+      showToast(error.message, 'error');
+    } finally {
+      setContactSending(false);
+    }
   };
 
   const toggleFaq = (index) => {
@@ -71,6 +107,12 @@ export const HomePage = () => {
 
   const displayName = currentUser?.name || '';
   const userInitials = displayName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+  const publicIssues = issues.filter((issue) => issue.isGenuine === true);
+  const activeIssueCount = publicIssues.filter((issue) => issue.status !== 'resolved').length;
+  const resolvedIssueCount = publicIssues.filter((issue) => issue.status === 'resolved').length;
+  const recentIssues = [...publicIssues]
+    .sort((first, second) => new Date(second.reportedAt || 0) - new Date(first.reportedAt || 0))
+    .slice(0, 3);
 
   const faqItems = [
     {
@@ -188,6 +230,11 @@ export const HomePage = () => {
 
           {/* Right Action Buttons */}
           <div className="home-nav-actions">
+            {installPrompt && (
+              <button className="btn-nav-login" onClick={handleInstall}>
+                Install App
+              </button>
+            )}
             {/* Theme Toggle */}
             <button 
               className="icon-action-btn"
@@ -279,8 +326,7 @@ export const HomePage = () => {
         </h1>
 
         <p className="hero-subtitle">
-          Report municipal, classroom, lab, or household issues in under 30 seconds. Powered by smart AI validation, 
-          live SLA countdowns, and photo-verified technician dispatch. Zero lost tickets, 100% accountability.
+          Report municipal, classroom, lab, or household issues and follow their progress through review, dispatch, and resolution.
         </p>
 
         {/* Hero CTAs */}
@@ -358,22 +404,50 @@ export const HomePage = () => {
       <section className="home-metrics-strip" aria-label="Platform Statistics">
         <div className="metrics-strip-inner">
           <div>
-            <div className="metric-item-num">98.4%</div>
-            <div className="metric-item-label">SLA Compliance Rate</div>
+            <div className="metric-item-num">{publicIssues.length}</div>
+            <div className="metric-item-label">Verified reports tracked</div>
           </div>
           <div>
-            <div className="metric-item-num">&lt; 2 Hrs</div>
-            <div className="metric-item-label">Average Emergency Dispatch</div>
+            <div className="metric-item-num">{activeIssueCount}</div>
+            <div className="metric-item-label">Active verified reports</div>
           </div>
           <div>
-            <div className="metric-item-num">10,000+</div>
-            <div className="metric-item-label">Students & Residents Covered</div>
+            <div className="metric-item-num">{resolvedIssueCount}</div>
+            <div className="metric-item-label">Verified reports resolved</div>
           </div>
           <div>
-            <div className="metric-item-num">24 / 7</div>
-            <div className="metric-item-label">Rapid Response Coverage</div>
+            <div className="metric-item-num">Live</div>
+            <div className="metric-item-label">Data from ReportX</div>
           </div>
         </div>
+      </section>
+      <section className="home-live-reports" aria-label="Recent verified reports">
+        <div className="home-live-reports-heading">
+          <div>
+            <span className="home-live-indicator" />
+            <h2>Recent community reports</h2>
+          </div>
+          <span>Live ReportX data</span>
+        </div>
+        {recentIssues.length ? (
+          <div className="home-live-reports-grid">
+            {recentIssues.map((issue) => (
+              <article className="home-live-report-card" key={issue.id}>
+                <div>
+                  <span className={`home-live-status home-live-status-${issue.status}`}>
+                    {issue.status.replace('_', ' ')}
+                  </span>
+                  <span className="home-live-domain">{issue.domain === 'on-campus' ? 'Campus' : 'Community'}</span>
+                </div>
+                <h3>{issue.title}</h3>
+                <p>{issue.location}</p>
+                <small>Ticket #{issue.id}</small>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="home-live-empty">Verified public reports will appear here when available.</p>
+        )}
       </section>
 
       {/* --------------------------------------------------------------------
@@ -652,7 +726,7 @@ export const HomePage = () => {
           {/* Interactive Contact Form Card */}
           <div className="contact-form-card">
             <h3>Send Us a Message</h3>
-            <p>Fill out the form below and our facility management desk will reply within 2 hours.</p>
+            <p>Send your inquiry to the facilities team and include an email address for their reply.</p>
 
             <form onSubmit={handleContactSubmit}>
               <label className="form-group-label" htmlFor="contact-name">
@@ -709,10 +783,14 @@ export const HomePage = () => {
                 required
               />
 
-              <button type="submit" className="btn-form-submit">
+              <button type="submit" className="btn-form-submit" disabled={contactSending}>
                 <Send size={16} />
-                <span>{contactSent ? 'Message Sent!' : 'Send Inquiry'}</span>
+                <span>{contactSending ? 'Sending…' : contactSent ? 'Message Sent!' : 'Send Inquiry'}</span>
               </button>
+              {contactError && <p className="contact-form-error" role="alert">{contactError}</p>}
+              <p className="contact-form-status" role="status" aria-live="polite">
+                {contactSent ? 'Your inquiry was delivered to the facilities team.' : 'Your email address is used so the team can reply.'}
+              </p>
             </form>
           </div>
         </div>

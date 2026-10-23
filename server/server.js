@@ -30,6 +30,7 @@ const isCloudinaryActive = () => Boolean(
 );
 
 const app = express();
+app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 5000);
 const clientOrigins = (process.env.CLIENT_URL || 'http://localhost:5173').split(',').map((origin) => origin.trim());
 const isLocalDevelopmentOrigin = (origin) => {
@@ -157,8 +158,43 @@ const issueSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+const contactMessageSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true, maxlength: 100 },
+  email: { type: String, required: true, lowercase: true, trim: true, maxlength: 254 },
+  department: { type: String, required: true, enum: ['general', 'campus_support', 'technician_inquiry', 'feedback'] },
+  message: { type: String, required: true, trim: true, maxlength: 3000 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const notificationSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  text: { type: String, required: true, maxlength: 500 },
+  type: { type: String, required: true, enum: ['info', 'success', 'status', 'assignment', 'review'] },
+  issueId: { type: String, default: null },
+  read: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const contactSubmissionWindows = new Map();
+const limitContactSubmissions = (req, res, next) => {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const attempts = (contactSubmissionWindows.get(req.ip) || []).filter((timestamp) => now - timestamp < windowMs);
+  if (attempts.length >= 5) return res.status(429).json({ error: 'Too many inquiries. Please try again in 15 minutes.' });
+  attempts.push(now);
+  contactSubmissionWindows.set(req.ip, attempts);
+  if (contactSubmissionWindows.size > 1000) {
+    for (const [ip, timestamps] of contactSubmissionWindows) {
+      if (timestamps.every((timestamp) => now - timestamp >= windowMs)) contactSubmissionWindows.delete(ip);
+    }
+  }
+  next();
+};
+
 const User = mongoose.model('User', userSchema);
 const Issue = mongoose.model('Issue', issueSchema);
+const ContactMessage = mongoose.model('ContactMessage', contactMessageSchema);
+const Notification = mongoose.model('Notification', notificationSchema);
 
 const transporter = process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS
   ? nodemailer.createTransport({
@@ -183,16 +219,24 @@ const publicUser = (user) => ({
   verified: user.emailVerified
 });
 
-const publicIssue = (issue) => ({
+const canViewIssueCoordinates = (issue, user) => Boolean(user && (
+  user.role === 'admin'
+  || issue.reportedByUser.equals(user._id)
+  || (user.role === 'technician' && issue.assignedToUser?.equals(user._id))
+));
+
+const publicIssue = (issue, { includeCoordinates = false } = {}) => ({
   id: issue.ticketId,
   title: issue.title,
   description: issue.description,
   category: issue.category,
   domain: issue.domain,
   location: issue.location,
-  latitude: issue.latitude ?? null,
-  longitude: issue.longitude ?? null,
-  coords: (issue.latitude != null && issue.longitude != null) ? [issue.latitude, issue.longitude] : null,
+  latitude: includeCoordinates ? issue.latitude ?? null : null,
+  longitude: includeCoordinates ? issue.longitude ?? null : null,
+  coords: includeCoordinates && issue.latitude != null && issue.longitude != null
+    ? [issue.latitude, issue.longitude]
+    : null,
   urgency: issue.urgency,
   status: issue.status,
   isGenuine: issue.isGenuine ?? null,
@@ -326,9 +370,9 @@ const assessIssueEvidence = async ({ title, description, category, domain, locat
   }
 };
 
-const sendEmail = async ({ to, subject, html }) => {
+const sendEmail = async ({ to, subject, html, replyTo }) => {
   if (!transporter) throw new Error('Email is not configured. Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS.');
-  await transporter.sendMail({ from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to, subject, html });
+  await transporter.sendMail({ from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to, subject, html, ...(replyTo ? { replyTo } : {}) });
 };
 
 const sendVerificationEmail = async (user, token, requestOrigin) => {
@@ -411,6 +455,12 @@ const sendStatusEmail = async (issue) => {
 };
 
 const emailTask = (promise) => promise.catch((error) => console.error('Email delivery failed:', error.message));
+const persistNotification = (userId, text, type, issueId) => Notification.create({
+  userId,
+  text,
+  type,
+  issueId
+}).catch((error) => console.error('Notification persistence failed:', error.message));
 
 const createSession = (user) => {
   const now = Math.floor(Date.now() / 1000);
@@ -470,7 +520,44 @@ const requireResolver = (req, res, next) => {
 
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 }));
+app.get('/api/health', (_req, res) => {
+  const databaseConnected = mongoose.connection.readyState === 1;
+  res.status(databaseConnected ? 200 : 503).json({
+    status: databaseConnected ? 'ok' : 'unavailable',
+    database: databaseConnected
+  });
+});
+
+app.post('/api/contact', limitContactSubmissions, asyncRoute(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const department = String(req.body.department || '');
+  const message = String(req.body.message || '').trim();
+  const allowedDepartments = ['general', 'campus_support', 'technician_inquiry', 'feedback'];
+
+  if (name.length < 2 || name.length > 100) return res.status(400).json({ error: 'Name must be between 2 and 100 characters.' });
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (!allowedDepartments.includes(department)) return res.status(400).json({ error: 'Choose a valid inquiry topic.' });
+  if (message.length < 5 || message.length > 3000) return res.status(400).json({ error: 'Message must be between 5 and 3000 characters.' });
+  if (!maintenanceEmail || !transporter) {
+    return res.status(503).json({ error: 'The contact service is not configured yet. Please contact the facilities office directly.' });
+  }
+
+  const contactMessage = await ContactMessage.create({ name, email, department, message });
+  try {
+    await sendEmail({
+      to: maintenanceEmail,
+      replyTo: email,
+      subject: `ReportX contact inquiry: ${department.replaceAll('_', ' ')}`,
+      html: `<p>A new ReportX inquiry was received.</p><p>Name: ${escapeHtml(name)}<br>Email: ${escapeHtml(email)}<br>Topic: ${escapeHtml(department.replaceAll('_', ' '))}</p><p>${escapeHtml(message).replaceAll('\n', '<br>')}</p>`
+    });
+  } catch (error) {
+    console.error('Contact inquiry email delivery failed:', error.message);
+    return res.status(503).json({ error: 'Your message was saved, but email delivery failed. Please contact the facilities office directly.' });
+  }
+
+  res.status(201).json({ message: 'Your inquiry was sent to the facilities team.', id: contactMessage._id.toString() });
+}));
 
 app.get('/api/cloudinary/status', (_req, res) => {
   res.json({
@@ -673,9 +760,26 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => res.json({ user: publicUser(req.user) }));
 
+app.get('/api/notifications', requireAuth, asyncRoute(async (req, res) => {
+  const notifications = await Notification.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(50).lean();
+  res.json(notifications.map((notification) => ({
+    id: notification._id.toString(),
+    text: notification.text,
+    type: notification.type,
+    issueId: notification.issueId,
+    read: notification.read,
+    timestamp: notification.createdAt
+  })));
+}));
+
+app.patch('/api/notifications/read', requireAuth, asyncRoute(async (req, res) => {
+  await Notification.updateMany({ userId: req.user._id, read: false }, { $set: { read: true } });
+  res.json({ message: 'Notifications marked as read.' });
+}));
+
 app.get('/api/issues/mine', requireAuth, asyncRoute(async (req, res) => {
   const issues = await Issue.find({ reportedByUser: req.user._id }).sort({ createdAt: -1 });
-  res.json(issues.map(publicIssue));
+  res.json(issues.map((issue) => publicIssue(issue, { includeCoordinates: true })));
 }));
 
 app.get('/api/issues', optionalAuth, asyncRoute(async (req, res) => {
@@ -692,15 +796,30 @@ app.get('/api/issues', optionalAuth, asyncRoute(async (req, res) => {
       : { isGenuine: true };
   }
   const issues = await Issue.find(filter).sort({ createdAt: -1 });
-  res.json(issues.map(publicIssue));
+  res.json(issues.map((issue) => publicIssue(issue, {
+    includeCoordinates: canViewIssueCoordinates(issue, req.user)
+  })));
 }));
 
 app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
   const { title, description, category, domain, location, urgency, imageUrl, videoUrl, latitude, longitude, coords } = req.body;
+  const reportLatitude = latitude ?? (Array.isArray(coords) ? coords[0] : null);
+  const reportLongitude = longitude ?? (Array.isArray(coords) ? coords[1] : null);
   if (!getOperationDomain(domain)) return res.status(400).json({ error: 'Select City or Campus operations for this report.' });
   const required = [title, description, category, domain, location, urgency];
   if (!required.every((value) => typeof value === 'string' && value.trim())) {
     return res.status(400).json({ error: 'Complete all required issue fields.' });
+  }
+  if (reportLatitude != null
+    && (!Number.isFinite(Number(reportLatitude)) || Number(reportLatitude) < -90 || Number(reportLatitude) > 90)) {
+    return res.status(400).json({ error: 'Latitude must be a valid coordinate.' });
+  }
+  if (reportLongitude != null
+    && (!Number.isFinite(Number(reportLongitude)) || Number(reportLongitude) < -180 || Number(reportLongitude) > 180)) {
+    return res.status(400).json({ error: 'Longitude must be a valid coordinate.' });
+  }
+  if ((reportLatitude == null) !== (reportLongitude == null)) {
+    return res.status(400).json({ error: 'Provide both latitude and longitude coordinates.' });
   }
   if (typeof videoUrl !== 'string' || !isUploadedVideo(videoUrl)) {
     return res.status(400).json({ error: 'Upload a video of the issue before submitting the report.' });
@@ -718,7 +837,9 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
   if (duplicate) {
     return res.status(409).json({
       error: `An unresolved issue already exists for this category and location: ${duplicate.ticketId}.`,
-      duplicate: publicIssue(duplicate)
+      duplicate: publicIssue(duplicate, {
+        includeCoordinates: canViewIssueCoordinates(duplicate, req.user)
+      })
     });
   }
   let videoHash;
@@ -750,8 +871,8 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
   const issue = await Issue.create({
     ticketId: `REP-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
     title, description, category, domain, location, urgency, imageUrl, videoUrl,
-    latitude: latitude ?? (Array.isArray(coords) ? coords[0] : null),
-    longitude: longitude ?? (Array.isArray(coords) ? coords[1] : null),
+    latitude: reportLatitude,
+    longitude: reportLongitude,
     beforeImageUrl: imageUrl,
     aiAssessment,
     evidenceHashes: [videoHash],
@@ -776,10 +897,18 @@ app.post('/api/issues', requireAuth, asyncRoute(async (req, res) => {
       type: aiVerified ? 'ai-review' : 'review'
     }]
   });
+  persistNotification(
+    req.user._id,
+    needsManualReview
+      ? `Report ${issue.ticketId} was submitted and is waiting for manual review.`
+      : `Report ${issue.ticketId} was submitted and verified.`,
+    needsManualReview ? 'info' : 'success',
+    issue.ticketId
+  );
   emailTask(sendIssueReceipt(issue));
   if (aiVerified) emailTask(sendReviewDecisionEmail(issue));
   res.status(201).json({
-    issue: publicIssue(issue),
+    issue: publicIssue(issue, { includeCoordinates: true }),
     message: needsManualReview
       ? 'Report submitted and queued for manual review because AI screening is unavailable.'
       : 'Report submitted and verified.'
@@ -827,8 +956,18 @@ app.put('/api/issues/:ticketId/review', requireAuth, requireAdmin, asyncRoute(as
     type: 'review'
   });
   await issue.save();
+  if (decision !== 'needs_review') {
+    persistNotification(
+      issue.reportedByUser,
+      decision === 'genuine'
+        ? `Report ${issue.ticketId} was verified and can now be assigned.`
+        : `Report ${issue.ticketId} was rejected: ${issue.rejectionReason}`,
+      'review',
+      issue.ticketId
+    );
+  }
   if (decision !== 'needs_review') emailTask(sendReviewDecisionEmail(issue));
-  res.json({ issue: publicIssue(issue) });
+  res.json({ issue: publicIssue(issue, { includeCoordinates: true }) });
 }));
 
 app.put('/api/issues/:ticketId/assign', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
@@ -866,8 +1005,10 @@ app.put('/api/issues/:ticketId/assign', requireAuth, requireAdmin, asyncRoute(as
     type: 'assignment'
   });
   await issue.save();
+  persistNotification(issue.reportedByUser, `Report ${issue.ticketId} was assigned to ${technician.name}.`, 'assignment', issue.ticketId);
+  persistNotification(technician._id, `You were assigned report ${issue.ticketId}: ${issue.title}.`, 'assignment', issue.ticketId);
   emailTask(sendAssignmentEmail(issue, technician));
-  res.json({ issue: publicIssue(issue) });
+  res.json({ issue: publicIssue(issue, { includeCoordinates: true }) });
 }));
 
 app.post('/api/issues/:ticketId/upvote', requireAuth, asyncRoute(async (req, res) => {
@@ -879,7 +1020,7 @@ app.post('/api/issues/:ticketId/upvote', requireAuth, asyncRoute(async (req, res
     : [...issue.upvotedUsers, req.user._id];
   issue.upvotes = issue.upvotedUsers.length;
   await issue.save();
-  res.json({ issue: publicIssue(issue) });
+  res.json({ issue: publicIssue(issue, { includeCoordinates: canViewIssueCoordinates(issue, req.user) }) });
 }));
 
 app.put('/api/issues/:ticketId/status', requireAuth, requireResolver, asyncRoute(async (req, res) => {
@@ -912,6 +1053,16 @@ app.put('/api/issues/:ticketId/status', requireAuth, requireResolver, asyncRoute
     type: 'status'
   });
   await issue.save();
+  const notificationRecipients = new Set([issue.reportedByUser.toString()]);
+  if (issue.assignedToUser) notificationRecipients.add(issue.assignedToUser.toString());
+  for (const userId of notificationRecipients) {
+    persistNotification(
+      userId,
+      `Report ${issue.ticketId} is now ${status.replace('_', ' ')}.`,
+      'status',
+      issue.ticketId
+    );
+  }
   let rewardPointsAwarded = 0;
   if (status === 'resolved' && issue.isGenuine === true) {
     const rewardResult = await User.updateOne(
@@ -931,7 +1082,10 @@ app.put('/api/issues/:ticketId/status', requireAuth, requireResolver, asyncRoute
     }
   }
   emailTask(sendStatusEmail(issue));
-  res.json({ issue: publicIssue(issue), rewardPointsAwarded });
+  res.json({
+    issue: publicIssue(issue, { includeCoordinates: canViewIssueCoordinates(issue, req.user) }),
+    rewardPointsAwarded
+  });
 }));
 
 app.post('/api/issues/:ticketId/comments', requireAuth, asyncRoute(async (req, res) => {
@@ -946,7 +1100,7 @@ app.post('/api/issues/:ticketId/comments', requireAuth, asyncRoute(async (req, r
     type: 'comment'
   });
   await issue.save();
-  res.json({ issue: publicIssue(issue) });
+  res.json({ issue: publicIssue(issue, { includeCoordinates: canViewIssueCoordinates(issue, req.user) }) });
 }));
 
 app.post('/api/issues/:ticketId/rating', requireAuth, asyncRoute(async (req, res) => {
@@ -965,11 +1119,14 @@ app.post('/api/issues/:ticketId/rating', requireAuth, asyncRoute(async (req, res
     type: 'rating'
   });
   await issue.save();
-  res.json({ issue: publicIssue(issue) });
+  res.json({ issue: publicIssue(issue, { includeCoordinates: true }) });
 }));
 
 app.use((error, _req, res, _next) => {
   console.error(error);
+  if (error.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Request body must contain valid JSON.' });
+  }
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ error: 'Video must be 12 MB or smaller.' });
   }

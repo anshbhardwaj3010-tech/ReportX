@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight, CheckCircle2, CircleDot, ClipboardCheck, FileVideo, Plus, ShieldCheck } from 'lucide-react';
 import { useIssues } from '../context/IssueContext';
+import { LiveMapWidget } from './LiveMapWidget';
 import './StudentDashboard.css';
 
 const formatStatus = (status) => {
@@ -93,11 +94,13 @@ export const StudentDashboard = () => {
         </section>
       </div>
 
+      <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
+
       <aside className="student-report-tip">
         <FileVideo size={19} />
         <div>
-          <strong>Helpful tip for a faster review</strong>
-          <span>Add a short video, describe what is wrong, and choose the closest location. A photo is optional.</span>
+          <strong>Add GPS for a precise map pin</strong>
+          <span>Tap “Use my location” while reporting to attach the issue coordinates. Matching operations staff can then open directions; location access is optional.</span>
         </div>
       </aside>
     </section>

@@ -137,18 +137,16 @@ export const AdminDashboard = () => {
           </button>
         </div>
 
-        {domain === 'off-campus' && (
-          <section className="admin-city-map">
-            <div className="admin-city-map-heading">
-              <div>
-                <h3><MapPin size={18} /> City operations map</h3>
-                <p>Explore city reports with available location coordinates.</p>
-              </div>
-              <button className="admin-map-link" onClick={() => setCurrentView('map')}>Open full map</button>
+        <section className="admin-city-map">
+          <div className="admin-city-map-heading">
+            <div>
+              <h3><MapPin size={18} /> {domain === 'off-campus' ? 'City' : 'Campus'} operations map</h3>
+              <p>Explore reports with shared GPS coordinates and open directions to their locations.</p>
             </div>
-            <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
-          </section>
-        )}
+            <button className="admin-map-link" onClick={() => setCurrentView('map')}>Open full map</button>
+          </div>
+          <LiveMapWidget onExpandMap={() => setCurrentView('map')} />
+        </section>
 
         <section className="admin-dispatch">
           <div className="admin-dispatch-heading">

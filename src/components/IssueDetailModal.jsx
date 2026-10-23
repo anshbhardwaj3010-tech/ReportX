@@ -1,24 +1,21 @@
 import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
-import { CATEGORIES } from '../data/mockData';
 import { getOptimizedImageUrl } from '../utils/cloudinary';
+import { getDirectionsUrl, getIssueCoordinates } from '../utils/mapLocation';
 import { 
-  X, CheckCircle2, Clock, Wrench, Sparkles, User, MapPin, 
-  Send, Star, ThumbsUp, ShieldCheck, ArrowRight, Camera 
+  X, CheckCircle2, Clock, MapPin, Send, Star, ShieldCheck, Camera, Navigation
 } from 'lucide-react';
 
 export const IssueDetailModal = () => {
   const { 
     selectedIssue, setSelectedIssue, 
-    addComment, verifyAndRateIssue, role 
+    addComment, verifyAndRateIssue, role
   } = useIssues();
 
   const [commentInput, setCommentInput] = useState('');
   const [starRating, setStarRating] = useState(5);
 
   if (!selectedIssue) return null;
-
-  const categoryObj = CATEGORIES.find(c => c.id === selectedIssue.category) || CATEGORIES[0];
 
   const stages = [
     { key: 'reported', label: '1. Issue Reported', desc: 'Ticket logged with location & media' },
@@ -37,6 +34,7 @@ export const IssueDetailModal = () => {
   };
 
   const currentStageIdx = getStageIndex(selectedIssue.status);
+  const directionsUrl = getDirectionsUrl(getIssueCoordinates(selectedIssue));
 
   const handleAddComment = (e) => {
     e.preventDefault();
@@ -81,6 +79,17 @@ export const IssueDetailModal = () => {
           <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
             Reported by: <strong style={{ color: '#e2e8f0' }}>{selectedIssue.reportedBy}</strong>
           </div>
+          {directionsUrl && (role === 'admin' || role === 'technician') && (
+            <a
+              className="issue-directions-link"
+              href={directionsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Navigation size={15} />
+              Get directions
+            </a>
+          )}
         </div>
 
         {/* Real-time 4-Stage Progress Timeline */}

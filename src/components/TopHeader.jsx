@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useIssues } from '../context/IssueContext';
 import { Calendar, Bell, Plus, Sun, Moon } from 'lucide-react';
 
@@ -7,12 +7,15 @@ export const TopHeader = () => {
     domain,
     role,
     notifications, 
+    notificationError,
+    markNotificationsRead,
     currentUser,
     openAuthModal,
     setIsReportModalOpen, 
     theme, 
     setTheme
   } = useIssues();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   // Dynamic formatted live date matching screenshot "Saturday, April 25"
   const todayFormatted = new Intl.DateTimeFormat('en-US', {
@@ -60,11 +63,17 @@ export const TopHeader = () => {
         </button>
 
         {/* Notification Bell with Badge */}
-        {role !== 'student' && (
+        <div className="notification-menu">
           <button
             className="icon-action-btn"
             aria-label="Notifications"
-            title={`${unreadCount} notifications`}
+            aria-expanded={notificationsOpen}
+            title={`${unreadCount} unread notifications`}
+            onClick={() => {
+              const opening = !notificationsOpen;
+              setNotificationsOpen(opening);
+              if (opening && unreadCount) markNotificationsRead();
+            }}
           >
             <Bell size={16} />
             {unreadCount > 0 && (
@@ -73,7 +82,20 @@ export const TopHeader = () => {
               </span>
             )}
           </button>
-        )}
+          {notificationsOpen && (
+            <div className="notification-popover" role="region" aria-label="Recent notifications">
+              <strong>Recent notifications</strong>
+              {notificationError ? (
+                <p className="notification-error" role="alert">{notificationError}</p>
+              ) : notifications.length ? notifications.map((notification) => (
+                <div className="notification-item" key={notification.id}>
+                  <span>{notification.text}</span>
+                  <time>{new Date(notification.timestamp).toLocaleString()}</time>
+                </div>
+              )) : <p className="notification-empty">No updates yet.</p>}
+            </div>
+          )}
+        </div>
 
         {/* Quick Report Issue Action */}
         <button
