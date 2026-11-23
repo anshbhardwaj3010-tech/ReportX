@@ -2,7 +2,7 @@
 
 ReportX is a campus and community facilities reporting app. Students and residents can submit and follow issues; administrators review and assign work; approved technicians update progress and provide resolution evidence.
 
-## Features
+## Features of report ex
 
 - Student, administrator, and technician workspaces
 - Campus and off-campus issue reporting with photo/video evidence
